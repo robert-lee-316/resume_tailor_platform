@@ -1,0 +1,61 @@
+{
+  "full_name": "Alex Morgan",
+  "job_title": "Senior Software Engineer",
+  "email": "alex@example.com",
+  "phone": "+1 555-0100",
+  "location": "Austin, TX",
+  "summary": "Backend-focused software engineer building secure, scalable web applications.",
+  "skills_text": "Python, FastAPI, React, AWS, PostgreSQL",
+  "experiences": [
+    {
+      "job_title": "Senior Software Engineer",
+      "company": "Acme Technologies",
+      "dates": "2021\u2013Present",
+      "bullets": [
+        {
+          "text": "Developed reliable REST APIs and background workers."
+        },
+        {
+          "text": "Reduced response time by 35%."
+        }
+      ],
+      "description": "Develops secure SaaS platforms for enterprise customers."
+    },
+    {
+      "job_title": "Software Engineer",
+      "company": "Example Systems",
+      "dates": "2018\u20132021",
+      "bullets": [
+        {
+          "text": "Built cloud-based services in Python and TypeScript."
+        }
+      ],
+      "description": "Built scalable digital products for business clients."
+    }
+  ],
+  "education": [
+    {
+      "degree": "B.S. Computer Science",
+      "institution": "State University",
+      "dates": "2014\u20132018"
+    }
+  ],
+  "skill_categories": [
+    {
+      "name": "Languages",
+      "skills_text": "Python, TypeScript"
+    },
+    {
+      "name": "Backend",
+      "skills_text": "FastAPI, Django"
+    },
+    {
+      "name": "Frontend",
+      "skills_text": "React, Next.js"
+    },
+    {
+      "name": "Cloud & Databases",
+      "skills_text": "AWS, PostgreSQL"
+    }
+  ]
+}
