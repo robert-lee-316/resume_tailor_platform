@@ -12,7 +12,8 @@ import type { ChangeEvent, DragEvent, KeyboardEvent, ReactNode, SyntheticEvent }
 import { useCallback, useEffect, useRef, useState } from "react";
 import { boldSelectedText, formatEducationDates, formatExperienceDates, initialResume, formatSkillCategories, parseResumeData, reorderBullets, safeFilename, sections, toDatePickerValue, toRenderPayload } from "@/lib/resume";
 import type { Education, Experience, ResumeData, Section, SkillCategory } from "@/lib/resume";
-import { loadTemplate, saveTemplate } from "@/lib/template-store";
+import { addTemplateToLibrary, loadTemplateLibrary, removeLibraryTemplate, selectLibraryTemplate } from "@/lib/template-store";
+import type { SavedTemplate, TemplateLibrary } from "@/lib/template-store";
 import { chooseOutputFolder, hasWritePermission, loadOutputFolder, loadWordDraft, requestWritePermission, saveOutputFolder, saveWordDraft, writeWordToFolder } from "@/lib/docx-autosave";
 import type { WordDraft, WordOutputFolder } from "@/lib/docx-autosave";
 import { makeSummaryHistory, recordSummaryEdit, undoSummaryEdit, redoSummaryEdit } from "@/lib/summary-history";
@@ -132,6 +133,9 @@ export default function HomePage() {
   const [selectedStyle, setSelectedStyle] = useState<StyleKey>("name");
   const [previewMode, setPreviewMode] = useState<"instant" | "pdf">("instant");
   const [template, setTemplate] = useState<File | null>(null);
+  const [templateLibrary, setTemplateLibrary] = useState<SavedTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [templateLibraryBusy, setTemplateLibraryBusy] = useState(false);
   const [inspection, setInspection] = useState<TemplateInspection | null>(null);
   const [inspectionLoading, setInspectionLoading] = useState(false);
   const [templateError, setTemplateError] = useState("");
@@ -168,7 +172,6 @@ export default function HomePage() {
   const achievementRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [importingPrevious, setImportingPrevious] = useState(false);
   const [importPreviousError, setImportPreviousError] = useState("");
-  const [autoTemplateMessage, setAutoTemplateMessage] = useState("");
   const [importCandidate, setImportCandidate] = useState<PreviousResumeImport | null>(null);
   const activePreview = useRef<AbortController | null>(null);
   const previewObjectUrl = useRef<string | null>(null);
@@ -218,16 +221,16 @@ export default function HomePage() {
         } catch { /* Ignore malformed local data and load the sample. */ }
       }
       try {
-        const stored = await loadTemplate();
-        const next = stored ?? await sampleFile();
-        if (!disposed) setTemplate(next);
-      } catch {
-        try {
-          const next = await sampleFile();
-          if (!disposed) setTemplate(next);
-        } catch {
-          if (!disposed) setTemplateError("The sample template could not be loaded. Upload a .docx template to continue.");
+        let library = await loadTemplateLibrary();
+        // A new workspace starts with the built-in template available in its library.
+        if (!library.items.length) library = await addTemplateToLibrary(await sampleFile());
+        if (!disposed) {
+          setTemplateLibrary(library.items);
+          setSelectedTemplateId(library.selectedId);
+          setTemplate(library.items.find(item => item.id === library.selectedId)?.file ?? null);
         }
+      } catch {
+        if (!disposed) setTemplateError("Could not load saved templates. Check browser storage and retry.");
       }
       if (!disposed) setInitialized(true);
     }
@@ -483,80 +486,42 @@ export default function HomePage() {
     }) }));
   };
 
-  const downloadTemplateFile = (file: File) => {
-    const url = URL.createObjectURL(file);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = file.name;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
-  };
-
-  // One upload does two different jobs:
-  // (1) prepare/save a reusable placeholder Word template, and
-  // (2) prefill the form from a *completed* resume when extraction is possible.
-  // Already-prepared templates are accepted without trying to parse Jinja tags
-  // as a person's name, which was the cause of the old import error.
+  // Previous-resume import only extracts data for the editor. It must never
+  // generate, replace, persist, or automatically download a Word template.
   const onPreviousResumeSelected = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
     setImportPreviousError("");
-    setAutoTemplateMessage("");
-    if (!/\.(docx|pdf)$/i.test(file.name) || file.size > MAX_TEMPLATE_BYTES) {
-      setImportPreviousError("Choose a DOCX or selectable-text PDF resume smaller than 5 MB."); return;
+    setImportCandidate(null);
+    if (!/\.(docx|pdf)$/i.test(file.name) || !file.size || file.size > MAX_TEMPLATE_BYTES) {
+      setImportPreviousError("Choose a DOCX or selectable-text PDF resume smaller than 5 MB.");
+      return;
     }
     setImportingPrevious(true);
     try {
       const form = new FormData();
       form.set("file", file, file.name);
-      const templateResponse = await fetch("/api/generate-template-from-resume", { method: "POST", body: form });
-      if (!templateResponse.ok) throw new Error(readError(await templateResponse.text()));
-      const mode = templateResponse.headers.get("X-GuruCorp-Template-Mode");
-      const base = file.name.replace(/\.(docx|pdf)$/i, "").replace(/[^a-z0-9_-]+/gi, "-").slice(0, 65) || "Resume";
-      const generatedTemplate = new File([await templateResponse.blob()],
-        `${base}-GuruCorp-Template.docx`,
-        { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
-
-      // Validate the generated file BEFORE overwriting the currently selected template.
-      const inspected = await inspectFile(generatedTemplate);
-      if (!inspected?.valid) throw new Error("The generated Word template could not be validated.");
-      await saveTemplate(generatedTemplate); // IndexedDB: available after refresh/restart.
-      setTemplate(generatedTemplate);
-      setInspection(inspected);
-      setTemplateError("");
-      downloadTemplateFile(generatedTemplate); // Save a real .docx in browser Downloads.
-      setAutoTemplateMessage(mode === "existing" || mode === "repaired"
-        ? "Your existing placeholder template was validated, saved, and downloaded."
-        : "A reusable DOCX template was generated, saved in this browser, and downloaded.");
-
-      if (mode === "existing" || mode === "repaired") {
-        notify("Template recognized and saved. You can use it without importing resume details.");
-        setSection("template");
-        return;
-      }
-
-      // Read the original filled resume independently: template generation
-      // should not silently overwrite the user's current form fields.
       const response = await fetch("/api/import-resume", { method: "POST", body: form });
       if (!response.ok) throw new Error(readError(await response.text()));
       const json: unknown = await response.json();
       if (!json || typeof json !== "object" || !("resume" in json)) throw new Error("Invalid server response.");
-      const result = json as { resume: unknown; warnings?: unknown; counts?: unknown };
+      const result = json as { resume: unknown; warnings?: unknown };
       const parsed = parseResumeData(result.resume);
       if (!parsed) throw new Error("Could not validate the extracted resume data.");
       setImportCandidate({
         resume: parsed,
-        warnings: ["The generated template uses a clean Word layout based on the resume. Complex source layouts may not be preserved exactly.",
-          ...(Array.isArray(result.warnings) ? result.warnings.filter((w): w is string => typeof w === "string") : [])],
+        warnings: Array.isArray(result.warnings)
+          ? result.warnings.filter((w): w is string => typeof w === "string")
+          : [],
         counts: { experiences: parsed.experiences.length, education: parsed.education.length },
         fileName: file.name,
       });
     } catch (error) {
-      setImportPreviousError(error instanceof Error ? error.message : "Resume/template import failed.");
-    } finally { setImportingPrevious(false); }
+      setImportPreviousError(error instanceof Error ? error.message : "Could not import resume information.");
+    } finally {
+      setImportingPrevious(false);
+    }
   };
 
   const confirmPreviousResumeImport = () => {
@@ -565,26 +530,61 @@ export default function HomePage() {
     summaryHistory.current = makeSummaryHistory(importCandidate.resume.summary);
     setSection("personal");
     setImportCandidate(null);
-    notify("Previous resume imported. Review the fields and dates before exporting.");
+    notify("Resume details imported. Your Word template was not changed or downloaded.");
+  };
+
+  const setActiveLibrary = (library: TemplateLibrary) => {
+    setTemplateLibrary(library.items);
+    setSelectedTemplateId(library.selectedId);
+    const active = library.items.find(item => item.id === library.selectedId);
+    setTemplate(active?.file ?? null);
+    setInspection(null);
+    setTemplateError("");
   };
 
   const applyTemplate = useCallback(async (file: File) => {
     setTemplateError("");
     if (!file.name.toLowerCase().endsWith(".docx")) { setTemplateError("Only .docx Word templates are supported."); setSection("template"); return; }
     if (!file.size || file.size > MAX_TEMPLATE_BYTES) { setTemplateError("The Word file must be between 1 byte and 5 MB."); setSection("template"); return; }
+    setTemplateLibraryBusy(true);
     try {
+      // Validate before adding a file to the reusable library.
       const result = await inspectFile(file);
-      try { await saveTemplate(file); }
-      catch { notify("Template loaded. Browser storage is unavailable, so keep the file for next time."); }
-      setTemplate(file);
+      const library = await addTemplateToLibrary(file);
+      setActiveLibrary(library);
       setInspection(result);
       setSection("template");
-      notify(`${file.name} is ready to use.`);
+      notify(`${file.name} added to your template library and selected.`);
     } catch (error) {
-      setTemplateError(error instanceof Error ? error.message : "Unable to inspect the uploaded template.");
+      setTemplateError(error instanceof Error ? error.message : "Could not add the Word template.");
       setSection("template");
-    }
+    } finally { setTemplateLibraryBusy(false); }
   }, [inspectFile, notify]);
+
+  const chooseTemplate = async (id: string) => {
+    if (id === selectedTemplateId || templateLibraryBusy) return;
+    setTemplateLibraryBusy(true);
+    try {
+      const library = await selectLibraryTemplate(id);
+      setActiveLibrary(library);
+      notify("Template selected. Your resume information has been preserved.");
+    } catch (error) {
+      setTemplateError(error instanceof Error ? error.message : "Could not select template.");
+    } finally { setTemplateLibraryBusy(false); }
+  };
+
+  const deleteTemplate = async (id: string) => {
+    const chosen = templateLibrary.find(item => item.id === id);
+    if (!chosen || !window.confirm(`Remove \"${chosen.name}\" from your template library? Your resume information will not be deleted.`)) return;
+    setTemplateLibraryBusy(true);
+    try {
+      const library = await removeLibraryTemplate(id);
+      setActiveLibrary(library);
+      notify("Template removed. Your resume information is unchanged.");
+    } catch (error) {
+      setTemplateError(error instanceof Error ? error.message : "Could not remove template.");
+    } finally { setTemplateLibraryBusy(false); }
+  };
 
   const onTemplateSelected = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -961,7 +961,7 @@ export default function HomePage() {
             <div className="editor-topline"><span className="eyebrow">YOUR RESUME WORKSPACE</span><span className="small-step">{section === "export" ? "EXPORT" : section === "template" ? "TEMPLATE" : section === "styles" ? "STYLE" : "CONTENT"}</span></div>
             <div className="editor-title-line">
               <h1>{section === "template" ? "Choose your template." : section === "export" ? "Ready to share?" : section === "styles" ? "Style your resume." : "Make your next move."}</h1>
-              <p>{section === "template" ? "Upload the Word document that makes your resume yours." : section === "export" ? "Your finished resume is just one click away." : section === "styles" ? "Adjust fonts and alignment for every part of your resume." : "Tell your story. We’ll take care of the formatting."}</p>
+              <p>{section === "template" ? "Upload and save multiple Word designs, then choose the template for your current resume." : section === "export" ? "Your finished resume is just one click away." : section === "styles" ? "Adjust fonts and alignment for every part of your resume." : "Tell your story. We’ll take care of the formatting."}</p>
             </div>
 
             <div className="section-nav" aria-label="Resume editor sections">
@@ -984,12 +984,11 @@ export default function HomePage() {
 
             {section === "personal" && <div className="editor-content">
               <div className="import-old-resume">
-                <div><strong><FileUp size={16} /> Already have a resume?</strong><p>Upload a completed Word/PDF resume to automatically generate and save a reusable DOCX template. Existing placeholder templates are recognized too. For completed resumes, review extracted fields before importing.</p></div>
+                <div><strong><FileUp size={16} /> Already have a resume?</strong><p>Upload an existing Word or PDF resume to fill in your details. Review the extracted information before applying it. Your selected Word template will not be changed.</p></div>
                 <button className="button outlined-button" disabled={importingPrevious} onClick={() => previousResumeRef.current?.click()}>
                   {importingPrevious ? <LoaderCircle size={16} className="spin" /> : <FileUp size={16} />} {importingPrevious ? "Reading resume…" : "Import previous resume"}
                 </button>
                 {importPreviousError && <p className="inline-import-error" role="alert">{importPreviousError}</p>}
-                {autoTemplateMessage && <p className="template-auto-message" role="status"><CircleCheck size={15} /> {autoTemplateMessage}</p>}
               </div>
               <SectionIntro number="01" eyebrow="THE BASICS" title="Personal details" subtitle="Start with the essentials. Make it easy for people to reach you." icon={<UserRound size={21} />} />
               <div className="field-grid">
@@ -1000,7 +999,7 @@ export default function HomePage() {
                 <div className="full-span"><Field label="Location" value={resume.location} placeholder="Austin, TX" onChange={value => updateField("location", value)} /></div>
                 <div className="full-span"><Field label="LinkedIn profile" type="url" value={resume.linkedin} placeholder="https://www.linkedin.com/in/your-profile" onChange={value => updateField("linkedin", value)} help="Add your LinkedIn profile link (optional)." /></div>
               </div>
-              <div className="tip-panel"><ShieldCheck size={18} /><p><strong>Privacy first.</strong> Resume information and your selected template are saved in this browser. Uploaded documents are also processed by your local backend when importing, generating templates, or exporting.</p></div>
+              <div className="tip-panel"><ShieldCheck size={18} /><p><strong>Privacy first.</strong> Resume information and your selected template are saved in this browser. Uploaded documents are processed by your local backend when importing or exporting. Importing never replaces your chosen template.</p></div>
               <div className="form-footer"><span>Step 1 of 5</span><button className="button primary-button" onClick={() => switchSection("summary")}>Continue <ArrowRight size={17} /></button></div>
             </div>}
 
@@ -1228,7 +1227,7 @@ export default function HomePage() {
             </div>}
 
             {section === "template" && <div className="editor-content">
-              <SectionIntro number="02" eyebrow="MAKE IT YOURS" title="Your Word template" subtitle="Upload a .docx file with recognized placeholders. Your styles stay in control." icon={<Layers3 size={21} />} />
+              <SectionIntro number="02" eyebrow="MAKE IT YOURS" title="Template library" subtitle="Upload multiple .docx templates, and select the design to use for this resume." icon={<Layers3 size={21} />} />
               <div className={`dropzone ${dragging ? "dragging" : ""}`} role="button" tabIndex={0} onClick={() => uploadRef.current?.click()} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") uploadRef.current?.click(); }} onDragEnter={event => { event.preventDefault(); setDragging(true); }} onDragLeave={event => { event.preventDefault(); setDragging(false); }} onDragOver={event => event.preventDefault()} onDrop={onDropTemplate}>
                 <div className="upload-icon"><UploadCloud size={26} /></div>
                 <strong>Drop your Word template here</strong>
@@ -1236,16 +1235,29 @@ export default function HomePage() {
                 <small>DOCX format · Up to 5 MB</small>
               </div>
               {templateError && <div className="inline-error" role="alert"><CircleAlert size={18} /><span>{templateError}</span></div>}
-              {template && <div className="template-file-card"><div className="word-file-icon"><FileText size={23} /></div><div className="template-file-info"><strong>{template.name}</strong><small>{(template.size / 1024).toFixed(1)} KB · {inspectionLoading ? "Validating…" : inspection ? "Valid template" : "Validation unavailable"}</small></div>{inspectionLoading ? <LoaderCircle className="spin" size={18} /> : inspection ? <CircleCheck className="done-icon" size={19} /> : <CircleAlert size={19} className="amber-icon" />}</div>}
-              <div className="template-auto-actions">
-                <button className="button outlined-button" disabled={importingPrevious} onClick={() => previousResumeRef.current?.click()}>
-                  {importingPrevious ? <LoaderCircle size={17} className="spin" /> : <WandSparkles size={17} />}
-                  {importingPrevious ? "Creating template…" : "Auto-create template from a resume"}
-                </button>
-                {template && <button className="button subtle-button" onClick={() => downloadTemplateFile(template)}><Download size={16} /> Save current template DOCX</button>}
+              <div className="template-library-section">
+                <div className="template-library-heading">
+                  <div><strong>My template library</strong><p>Choose a saved template for this resume. Your information stays the same when you switch designs.</p></div>
+                  <span className="template-library-count">{templateLibrary.length} saved</span>
+                </div>
+                {templateLibraryBusy && <p className="template-library-status"><LoaderCircle className="spin" size={14} /> Updating library…</p>}
+                <div className="template-library-list" role="radiogroup" aria-label="Select resume template">
+                  {templateLibrary.map(item => {
+                    const active = item.id === selectedTemplateId;
+                    return <div key={item.id} className={`template-library-item ${active ? "active" : ""}`}>
+                      <button type="button" role="radio" aria-checked={active} className="template-library-select" disabled={templateLibraryBusy}
+                        onClick={() => void chooseTemplate(item.id)}>
+                        <span className="template-library-file-icon"><FileText size={20} /></span>
+                        <span className="template-library-file-details"><strong title={item.name}>{item.name}</strong><small>{(item.file.size / 1024).toFixed(1)} KB · Added {new Date(item.addedAt).toLocaleDateString()}</small></span>
+                        <span className={`template-library-indicator ${active ? "active" : ""}`}>{active ? <><CircleCheck size={16} /> Selected</> : "Use template"}</span>
+                      </button>
+                      <button type="button" className="template-library-remove" disabled={templateLibraryBusy} title={`Remove ${item.name}`} aria-label={`Remove ${item.name}`} onClick={() => void deleteTemplate(item.id)}><Trash2 size={17}/></button>
+                    </div>;
+                  })}
+                  {!templateLibrary.length && <p className="template-library-empty">No saved templates. Upload a DOCX file to add your first design.</p>}
+                </div>
+                {template && <p className="template-library-current"><Check size={14} /> Active: <strong>{template.name}</strong> · {inspectionLoading ? "Validating…" : inspection ? "Valid template" : "Validation pending"}</p>}
               </div>
-              {autoTemplateMessage && <p className="template-auto-message" role="status"><CircleCheck size={15} /> {autoTemplateMessage}</p>}
-              {importPreviousError && <p className="inline-import-error" role="alert">{importPreviousError}</p>}
               <button className="sample-template-link" onClick={() => { void sampleFile().then(applyTemplate).catch(() => notify("Could not load the sample template.")); }}><RefreshCw size={15} /> Use the included sample template</button>
               <div className="template-instructions"><div className="instructions-head"><div><strong>Supported placeholders</strong><p>Add these fields directly inside your Word template.</p></div><button className="icon-button" title="Copy supported fields" aria-label="Copy supported fields" onClick={() => void copyFields()}>{copied ? <Check size={17} /> : <Copy size={17} />}</button></div>
                 {PLACEHOLDER_GROUPS.map(group => <div className="placeholder-group" key={group.name}><strong>{group.name}</strong><div className="placeholder-tags">{group.values.map(value => <FieldTag key={value} value={value} detected={Boolean(inspection?.fields.includes(value))} />)}</div></div>)}
@@ -1278,7 +1290,6 @@ export default function HomePage() {
               <div className="backup-actions"><button className="button outlined-button" onClick={downloadJson}><FileJson size={17} /> Save resume data</button><button className="button outlined-button" onClick={() => jsonRef.current?.click()}><FileUp size={17} /> Import JSON backup</button></div>
               <button className="button outlined-button resume-import-export" onClick={() => previousResumeRef.current?.click()} disabled={importingPrevious}><FileUp size={17} /> {importingPrevious ? "Reading document…" : "Import previous Word / PDF resume"}</button>
               {importPreviousError && <p className="inline-import-error" role="alert">{importPreviousError}</p>}
-                {autoTemplateMessage && <p className="template-auto-message" role="status"><CircleCheck size={15} /> {autoTemplateMessage}</p>}
               <div className="tip-panel"><ShieldCheck size={18} /><p><strong>Built around your template.</strong> Word is generated first, then converted into the PDF you see on the right.</p></div>
               <div className="form-footer"><button className="button subtle-button" onClick={() => switchSection("template")}><ArrowLeft size={16} /> Back to template</button></div>
             </div>}
@@ -1287,7 +1298,7 @@ export default function HomePage() {
         </main>
 
         <section className={`preview-panel ${mobilePanel === "edit" ? "mobile-hidden" : ""}`} aria-label="Resume preview">
-          <div className="preview-toolbar"><div className="preview-toolbar-left"><span className="preview-eyebrow">LIVE DOCUMENT PREVIEW</span><span className="preview-tag"><span className="live-dot" /> {previewMode === "instant" ? "Instant draft" : "Exact Word layout"}</span></div><div className="preview-toolbar-right"><div className="preview-mode-switch" role="group" aria-label="Preview mode"><button className={previewMode === "instant" ? "selected" : ""} onClick={() => setPreviewMode("instant")}>Instant</button><button className={previewMode === "pdf" ? "selected" : ""} onClick={() => setPreviewMode("pdf")}>Exact PDF</button></div><button className="preview-refresh" title="Refresh exact PDF" aria-label="Refresh exact PDF" disabled={!template || renderState === "generating"} onClick={() => { setPreviewMode("pdf"); void generatePreview(true); }}><RefreshCw size={17} className={renderState === "generating" ? "spin" : ""} /></button></div></div>
+          <div className="preview-toolbar"><div className="preview-toolbar-left"><span className="preview-eyebrow">LIVE DOCUMENT PREVIEW</span><span className="preview-tag"><span className="live-dot" /> {previewMode === "instant" ? "Instant draft" : "Exact Word layout"}</span></div><div className="preview-toolbar-right"><label className="quick-template-choice"><span className="sr-only">Active Word template</span><Layers3 size={14} /><select aria-label="Active Word template" value={selectedTemplateId ?? ""} disabled={templateLibraryBusy || !templateLibrary.length} onChange={event => void chooseTemplate(event.target.value)}>{!templateLibrary.length && <option value="">No template</option>}{templateLibrary.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><div className="preview-mode-switch" role="group" aria-label="Preview mode"><button className={previewMode === "instant" ? "selected" : ""} onClick={() => setPreviewMode("instant")}>Instant</button><button className={previewMode === "pdf" ? "selected" : ""} onClick={() => setPreviewMode("pdf")}>Exact PDF</button></div><button className="preview-refresh" title="Refresh exact PDF" aria-label="Refresh exact PDF" disabled={!template || renderState === "generating"} onClick={() => { setPreviewMode("pdf"); void generatePreview(true); }}><RefreshCw size={17} className={renderState === "generating" ? "spin" : ""} /></button></div></div>
           <div className="preview-stage">
             {showInstantDraft ? <div className="instant-paper-wrap"><InstantResumePreview resume={resume} styles={styles} /></div> : previewUrl ? <div className="paper-wrap"><iframe title="Generated PDF resume preview" src={`${previewUrl}#toolbar=0&navpanes=0&zoom=page-width`} className="pdf-frame" /></div> : <div className="empty-preview"><div className="empty-paper"><img alt="Example one-page resume output" src="/images/sample-resume.png" /></div><div className="empty-overlay"><div className="empty-state-icon">{renderState === "generating" ? <LoaderCircle className="spin" size={26} /> : <FileText size={26} />}</div><strong>{renderState === "generating" ? "Building your preview" : renderState === "error" ? "Preview unavailable" : "Your resume preview"}</strong><p>{renderState === "generating" ? "Formatting your Word template into a PDF…" : renderState === "error" ? previewError : "Your generated PDF will appear here once the document engine is running."}</p>{renderState !== "generating" && <button className="button primary-button" onClick={() => { void checkHealth(); void generatePreview(); }}><RefreshCw size={16} /> Try again</button>}</div></div>}
             {previewMode === "pdf" && exactPreviewIsStale && <div className="preview-loading"><LoaderCircle size={16} className="spin" /> Live draft shown · Updating exact PDF…</div>}
@@ -1303,7 +1314,7 @@ export default function HomePage() {
           <div><span className="eyebrow">IMPORT REVIEW</span><h2 id="import-dialog-title">Previous resume found</h2><p>{importCandidate.fileName}</p></div>
           <button type="button" className="icon-button" aria-label="Close import review" onClick={() => setImportCandidate(null)}><X size={18} /></button>
         </div>
-        <p className="import-dialog-note">Your reusable Word template was already generated, saved, and downloaded. Check the extracted information below; confirming will also replace the current resume fields. You can edit them afterward.</p>
+        <p className="import-dialog-note">Review the information extracted from this resume. Confirming will update only the fields in your editor; your selected Word template stays unchanged. No template is created or downloaded.</p>
         <div className="import-summary-fields"><div><span>Candidate</span><strong>{importCandidate.resume.full_name || "Not detected"}</strong></div><div><span>Professional title</span><strong>{importCandidate.resume.job_title || "Not detected"}</strong></div><div><span>Experience</span><strong>{importCandidate.counts.experiences} positions</strong></div><div><span>Education</span><strong>{importCandidate.counts.education} entries</strong></div></div>
         {importCandidate.warnings.length > 0 && <div className="import-warnings"><CircleAlert size={17} /><div>{importCandidate.warnings.map((warning, index) => <p key={index}>{warning}</p>)}</div></div>}
         <div className="import-dialog-buttons"><button className="button outlined-button" onClick={() => setImportCandidate(null)}>Keep current resume</button><button className="button primary-button" onClick={confirmPreviousResumeImport}>Replace with imported data <ArrowRight size={16} /></button></div>
