@@ -13,6 +13,7 @@ from docx import Document
 EMAIL = re.compile(r"[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}")
 LINKEDIN = re.compile(r"(?:https?://)?(?:www\.)?linkedin\.com/in/[A-Za-z0-9_%\-]+/?", re.I)
 PHONE = re.compile(r"(?<!\w)(?:\+?\d[\d().\s-]{7,}\d)(?!\w)")
+US_PHONE = re.compile(r"(?<!\w)(?:\+1[ .-]?)?\(?\d{3}\)?[ .-]?\d{3}[ .-]?\d{4}(?!\w)")
 MONTH = r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
 DATE_PART = rf"(?:{MONTH}\.?\s+\d{{4}}|\d{{4}})"
 DATE_RANGE = re.compile(rf"({DATE_PART}\s*[-–—]\s*(?:{DATE_PART}|Present|Current|Now))\s*$", re.I)
@@ -115,12 +116,15 @@ def parse_lines(lines: list[ResumeLine]) -> dict:
     contact = " | ".join(head[1:])
     email = EMAIL.search(contact)
     if email: data["email"] = email.group(0)
-    phone = PHONE.search(contact)
+    # Prefer complete US numbers, including the opening parenthesis, before fallback.
+    phone = US_PHONE.search(contact) or PHONE.search(contact)
     if phone: data["phone"] = clean(phone.group(0))
     linkedin = LINKEDIN.search(contact)
     if linkedin: data["linkedin"] = linkedin.group(0)
     for line in head[1:]:
-        parts = [clean(x) for x in line.split('|') if clean(x)]
+        # Resume PDFs often separate contacts with a standalone slash instead of |.
+        # Split only surrounded separators, not the /in/ path in LinkedIn URLs.
+        parts = [clean(x) for x in re.split(r'\s+(?:/|\|)\s+', line) if clean(x)]
         for part in parts:
             if EMAIL.search(part) or PHONE.search(part) or LINKEDIN.search(part): continue
             if part == data["job_title"]: continue
@@ -129,12 +133,22 @@ def parse_lines(lines: list[ResumeLine]) -> dict:
                 break
         if data["location"]: break
 
+    # In many resumes the summary is directly below the contact line, with no
+    # SUMMARY heading. Recover only meaningful text *after* the contact line.
+    inferred_summary: list[str] = []
+    if first_heading < len(lines) and HEADINGS.get(lines[first_heading].text.upper().rstrip(':')) in ("skills", "experience", "education"):
+        contact_pos = next((i for i, line in enumerate(head) if EMAIL.search(line) or US_PHONE.search(line)), -1)
+        if contact_pos >= 0:
+            inferred_summary = [line for line in head[contact_pos + 1:]
+                                if len(line.split()) >= 5 and not EMAIL.search(line)]
+
     section = ""
-    summary: list[str] = []
+    summary: list[str] = inferred_summary[:]
     skills: list[str] = []
     exp: dict | None = None
     edu: dict | None = None
     extra_education: list[str] = []
+    pending_experience_title = ""
 
     def flush_experience() -> None:
         nonlocal exp
@@ -166,31 +180,46 @@ def parse_lines(lines: list[ResumeLine]) -> dict:
             skills.append(text)
         elif section == "experience":
             m = DATE_RANGE.search(text)
-            # A job heading typically ends in a date range and starts with the job title.
-            if m and len(text[:m.start()].strip(' -–|')) > 2 and not item.bullet:
-                flush_experience()
-                title = clean(text[:m.start()].strip(' -–|'))
-                start, end, current = split_dates(m.group(1))
-                exp = {"job_title": title, "company": "", "dates": m.group(1), "start_date": start, "end_date": end,
-                       "is_current": current, "description": "", "bullets": []}
-                continue
+            if m and not item.bullet:
+                heading_prefix = clean(text[:m.start()].strip(' -–|,'))
+                if heading_prefix:
+                    flush_experience()
+                    # Many PDFs split "Role" and "Company, City, ST, Dates"
+                    # onto two separate lines. Do not interpret the company
+                    # as a job title or the first achievement as company.
+                    company_with_place = re.fullmatch(
+                        r"(.+?),\s*([^,]+),\s*([A-Za-z]{2}),?", heading_prefix)
+                    if pending_experience_title and company_with_place:
+                        title = pending_experience_title
+                        company = clean(company_with_place.group(1))
+                    elif pending_experience_title and "," in heading_prefix:
+                        title = pending_experience_title
+                        company = heading_prefix
+                    else:
+                        title = heading_prefix
+                        company = ""
+                    start, end, current = split_dates(m.group(1))
+                    exp = {"job_title": title, "company": company,
+                           "dates": m.group(1), "start_date": start, "end_date": end,
+                           "is_current": current, "description": "", "bullets": []}
+                    pending_experience_title = ""
+                    continue
             if exp is None:
-                # Some formats put company before title/dates; without an identifiable
-                # date heading, don't fabricate a position.
+                if not item.bullet:
+                    pending_experience_title = text
                 continue
             if not exp["company"] and not item.bullet:
                 exp["company"] = clean(text.split('|')[0])
             elif item.bullet or BULLET_PREFIX.match(text):
                 exp["bullets"].append({"text": BULLET_PREFIX.sub('', text).strip()})
-            elif not item.bullet and not exp["bullets"]:
-                # Ordinary paragraph immediately following company/title is its
-                # description, NOT the first achievement bullet.
-                exp["description"] = (exp["description"] + " " + text).strip()
-            elif exp["bullets"] and len(text) < 110 and not re.search(r"[.!?]$", exp["bullets"][-1]["text"]):
-                # Line-wrap in extracted PDFs. A paragraph in DOCX is usually one line.
+            elif exp["bullets"] and not re.search(r"[.!?]$", exp["bullets"][-1]["text"]):
+                # Join wrapped PDF bullet lines, including long continuations.
                 exp["bullets"][-1]["text"] += " " + text
+            elif not item.bullet and not exp["bullets"]:
+                exp["description"] = (exp["description"] + " " + text).strip()
             else:
-                exp["bullets"].append({"text": text})
+                # A non-bullet after a completed bullet may be the next role.
+                pending_experience_title = text
         elif section == "education":
             date_match = DATE_RANGE.search(text)
             if date_match:
@@ -199,7 +228,14 @@ def parse_lines(lines: list[ResumeLine]) -> dict:
                 edu["dates"] = date_match.group(1)
                 edu["start_date"], edu["end_date"], edu["is_current"] = split_dates(edu["dates"])
                 rem = clean(text[:date_match.start()].strip(' -–|'))
-                if rem and not edu["institution"]: edu["institution"] = rem
+                if rem:
+                    # School and city/state may share the same dated line.
+                    school_loc = re.fullmatch(r"(.+?),\s*([^,]+),\s*([A-Za-z]{2}),?", rem)
+                    if school_loc:
+                        if not edu["institution"]: edu["institution"] = clean(school_loc.group(1))
+                        edu["location"] = f"{clean(school_loc.group(2))}, {school_loc.group(3)}"
+                    elif not edu["institution"]:
+                        edu["institution"] = rem
                 continue
             # University — Degree, or Degree at University
             if edu and (edu["institution"] or edu["degree"]) and edu["dates"]:
@@ -228,7 +264,15 @@ def parse_lines(lines: list[ResumeLine]) -> dict:
     if section == "experience": flush_experience()
     if section == "education": flush_education()
     data["summary"] = " ".join(summary)
-    data["skills_text"] = "\n".join(skills)
+    # Join wrapped category entries to avoid creating accidental "General"
+    # skill categories in the React editor when PDF lines wrap.
+    joined_skills: list[str] = []
+    for skill_line in skills:
+        if re.match(r"^[^:]{1,65}:\s", skill_line) or not joined_skills:
+            joined_skills.append(skill_line)
+        else:
+            joined_skills[-1] += " " + skill_line
+    data["skills_text"] = "\n".join(joined_skills)
 
     if not data["full_name"]: warnings.append("Could not detect the candidate name.")
     if not data["experiences"]: warnings.append("No work experience entries were recognized; add them manually.")

@@ -411,3 +411,56 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,[role=button]:fo
 .quick-template-choice{display:flex;align-items:center;gap:6px;max-width:196px;min-width:100px;padding:6px 9px;border:1px solid #e1e6ee;border-radius:9px;color:#9b742f;background:#fff}
 .quick-template-choice select{width:100%;min-width:0;max-width:150px;background:transparent;color:#253047;font-size:11px;border:0;outline:0;text-overflow:ellipsis}
 @media(max-width:1040px){.quick-template-choice{max-width:132px}}
+
+/* Omar-style instant draft: mirrors major hierarchy from the uploaded DOCX.
+   Word rendering remains the authority for page breaks and exact placement. */
+.instant-resume.instant-omar{width:min(100%,816px);max-width:816px;min-height:1056px;padding:54px 52px;background:#fff;font-family:"Times New Roman",Times,serif;line-height:1.12;overflow-wrap:normal;word-break:normal}
+.instant-omar .instant-resume-header{margin-bottom:20px}
+.instant-omar .instant-resume-header h1{text-decoration:underline;text-underline-offset:3px;margin-bottom:4px}
+.instant-omar .instant-resume-header p{margin-top:9px}
+.instant-omar .instant-resume-section{margin-top:18px}
+.instant-omar .instant-summary{margin-top:10px;margin-bottom:22px}
+.instant-omar .instant-summary .instant-text{line-height:1.12}
+.instant-omar .instant-skills-section,
+.instant-omar .instant-experience-section,
+.instant-omar .instant-education-section{border-top:1px solid #bec4ca;padding-top:12px}
+.instant-omar .instant-resume-section h2{text-align:center;border:0;margin:0 0 10px;padding:0;font-weight:700;line-height:1.1}
+.instant-omar .instant-skills-plain p{margin:0 0 1px;line-height:1.13}
+.instant-omar .instant-experience{margin:12px 0 14px;line-height:1.17}
+.instant-omar .instant-experience .instant-jobline{margin-top:3px}
+.instant-omar .instant-experience ul{margin:5px 0 0;padding-left:30px;list-style-type:disc;line-height:1.18}
+.instant-omar .instant-experience li{padding-left:0;margin-bottom:2px;text-align:left}
+.instant-omar .instant-education{margin:9px 0 12px}
+@media(max-width:820px){.instant-resume.instant-omar{padding:28px 22px;min-height:700px}}
+
+/* Independent controls for each resume section and its content */
+.style-group-collection{display:grid;gap:14px;margin:0 0 18px}
+.style-group-label{color:#546078;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;margin:0 0 8px}
+.style-group .style-category-grid{margin-bottom:0}
+.style-paragraph-controls{border-top:1px solid #e6eaf0;padding-top:15px;margin-top:15px}
+.style-paragraph-controls input{width:100%;min-height:42px;padding:9px 11px;border:1px solid #dfe3eb;border-radius:8px;background:#fff;color:#28344b}
+
+/* Heading style troubleshooting actions */
+.heading-repair-actions { margin: 20px 0 16px; padding: 16px; border: 1px solid #d8dde7; border-radius: 12px; background: #fcfcfd; }
+.heading-repair-actions strong { display: block; font-size: 14px; }
+.heading-repair-actions p { margin: 6px 0 12px; font-size: 12px; line-height: 1.5; color: #657187; }
+.heading-repair-buttons { display: flex; gap: 10px; flex-wrap: wrap; }
+.heading-repair-buttons .button { min-height: 38px; white-space: normal; }
+
+/* Shared dynamic heading typography editor: one style for all section headings. */
+.heading-style-editor { margin: 20px 0 16px; padding: 16px; border: 1px solid #d8dde7; border-radius: 12px; background: #fcfcfd; }
+.heading-style-editor-title > strong { font-size: 15px; color: #14213d; }
+.heading-style-editor-title p { margin: 6px 0 14px; font-size: 12px; line-height: 1.5; color: #657187; }
+.heading-style-card { background: white; border: 1px solid #dfe4ee; border-radius: 11px; padding: 14px; margin: 12px 0; }
+.heading-style-card-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.heading-style-card-top > strong { font-size: 13px; letter-spacing: .03em; }
+.heading-restore-button { background: transparent; border: 1px solid #cdd5e2; border-radius: 8px; padding: 7px 10px; color: #263b59; cursor: pointer; font-size: 11px; }
+.heading-restore-button:hover { background: #f6f8fc; }
+.heading-style-state { margin-top: 4px; font-size: 11px; color: #6d7890; }
+.heading-style-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 12px 0; }
+.heading-style-controls .field { min-width: 0; }
+.heading-style-sample { border: 1px dashed #d4dce9; border-radius: 8px; padding: 11px 8px; margin-top: 9px; background: #fff; }
+.heading-style-hint { font-size: 11px; color: #6d7890; line-height: 1.5; margin: 8px 0 0; }
+@media (max-width: 540px) { .heading-style-controls { grid-template-columns: 1fr; } }
+
+.heading-style-sample-line + .heading-style-sample-line { margin-top: 10px; }

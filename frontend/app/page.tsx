@@ -18,7 +18,7 @@ import { chooseOutputFolder, hasWritePermission, loadOutputFolder, loadWordDraft
 import type { WordDraft, WordOutputFolder } from "@/lib/docx-autosave";
 import { makeSummaryHistory, recordSummaryEdit, undoSummaryEdit, redoSummaryEdit } from "@/lib/summary-history";
 import type { SummarySnapshot } from "@/lib/summary-history";
-import { cssTextStyle, DEFAULT_STYLES, FONT_CHOICES, parseResumeStyles, STYLE_KEYS, STYLE_LABELS } from "@/lib/styles";
+import { cssTextStyle, DEFAULT_STYLES, FONT_CHOICES, parseResumeStyles, STYLE_GROUPS, STYLE_LABELS, SECTION_HEADING_KEYS, updateSharedHeadingStyle, restoreSharedHeadingStyle } from "@/lib/styles";
 import type { ResumeStyles, StyleKey, TextStyle } from "@/lib/styles";
 
 const RESUME_STORAGE = "folio-resume-v1";
@@ -99,25 +99,44 @@ function FieldTag({ value, detected }: { value: string; detected: boolean }) {
   return <span className={`tag ${detected ? "tag-detected" : ""}`}>{`{{ ${value} }}`}{detected && <Check size={12} />}</span>;
 }
 
-function InstantResumePreview({ resume, styles }: { resume: ResumeData; styles: ResumeStyles }) {
-  return <article className="instant-resume" aria-label="Instant resume draft">
+function InstantResumePreview({ resume, styles, omarLayout = false }: { resume: ResumeData; styles: ResumeStyles; omarLayout?: boolean }) {
+  // A fast HTML approximation of the selected Omar-style Word template.
+  // Only PDF rendering reproduces actual DOCX pagination and Word metrics.
+  return <article className={`instant-resume${omarLayout ? " instant-omar" : ""}`} aria-label="Instant resume draft">
     <header className="instant-resume-header">
       <h1 style={cssTextStyle(styles.name)}>{resume.full_name || "Your name"}</h1>
       <div style={cssTextStyle(styles.role)}>{resume.job_title || "Professional title"}</div>
-      <p style={cssTextStyle(styles.personal)}>{[resume.location, resume.email, resume.phone, resume.linkedin].filter(Boolean).join("  |  ")}</p>
+      <p style={cssTextStyle(styles.personal)}>{[resume.phone, resume.email, resume.location, resume.linkedin].filter(Boolean).join(omarLayout ? "  /  " : "  |  ")}</p>
     </header>
-    <section className="instant-resume-section"><h2 style={cssTextStyle(styles.summary)}>SUMMARY</h2><div style={cssTextStyle(styles.summary)} className="instant-text"><BoldPreview value={resume.summary} /></div></section>
-    <section className="instant-resume-section"><h2 style={cssTextStyle(styles.skills)}>TECHNICAL SKILLS</h2>
-      <ul className="instant-skills" style={cssTextStyle(styles.skills)}>{resume.skill_categories.filter(cat => cat.skills.some(s => s.trim())).map(cat => <li key={cat.id}><strong>{cat.name ? `${cat.name}: ` : ""}</strong>{cat.skills.filter(Boolean).join(", ")}</li>)}</ul>
+    <section className="instant-resume-section instant-summary">
+      {!omarLayout && <h2 style={cssTextStyle(styles.summary)}>SUMMARY</h2>}
+      <div style={cssTextStyle(styles.summary)} className="instant-text"><BoldPreview value={resume.summary} /></div>
     </section>
-    <section className="instant-resume-section"><h2 style={cssTextStyle(styles.experience)}>WORK EXPERIENCE</h2>
-      {resume.experiences.map(exp => <div key={exp.id} className="instant-experience" style={cssTextStyle(styles.experience)}><div className="instant-jobline"><strong>{exp.job_title}</strong><span>{formatExperienceDates(exp)}</span></div><div>{exp.company}</div>
-        {exp.description.trim() && <p className="instant-company-description" style={cssTextStyle(styles.body)}><BoldPreview value={exp.description} /></p>}
-        <ul style={cssTextStyle(styles.body)}>{exp.bullets.filter(b => b.text.trim()).map((bullet,index) => <li key={index}><BoldPreview value={bullet.text} /></li>)}</ul>
+    <section className="instant-resume-section instant-skills-section">
+      <h2 style={cssTextStyle(styles.skillsHeading)}> {omarLayout ? "SKILLS" : "TECHNICAL SKILLS"}</h2>
+      {omarLayout ? <div className="instant-skills-plain" style={cssTextStyle(styles.skills)}>
+        {resume.skill_categories.filter(cat => cat.skills.some(s => s.trim())).map(cat =>
+          <p key={cat.id} style={cssTextStyle(styles.skills)}><strong>{cat.name ? `${cat.name}: ` : ""}</strong>{cat.skills.filter(Boolean).join(", ")}</p>)}
+      </div> : <ul className="instant-skills" style={cssTextStyle(styles.skills)}>
+        {resume.skill_categories.filter(cat => cat.skills.some(s => s.trim())).map(cat =>
+          <li key={cat.id} style={{textAlign: styles.skills.align}}><strong>{cat.name ? `${cat.name}: ` : ""}</strong>{cat.skills.filter(Boolean).join(", ")}</li>)}
+      </ul>}
+    </section>
+    <section className="instant-resume-section instant-experience-section"><h2 style={cssTextStyle(styles.experienceHeading)}>WORK EXPERIENCE</h2>
+      {resume.experiences.map(exp => <div key={exp.id} className="instant-experience" style={cssTextStyle(styles.experience)}>
+        {omarLayout ? <>
+          <div><strong>{exp.job_title}</strong></div>
+          <div className="instant-jobline"><strong>{exp.company}</strong><span>{formatExperienceDates(exp)}</span></div>
+        </> : <><div className="instant-jobline"><strong>{exp.job_title}</strong><span>{formatExperienceDates(exp)}</span></div><div>{exp.company}</div></>}
+        {exp.description.trim() && <p className="instant-company-description" style={cssTextStyle(styles.experienceDescription)}><BoldPreview value={exp.description} /></p>}
+        <ul style={cssTextStyle(styles.experienceBullets)}>{exp.bullets.filter(b => b.text.trim()).map((bullet,index) => <li key={index} style={{textAlign: styles.experienceBullets.align}}><BoldPreview value={bullet.text} /></li>)}</ul>
       </div>)}
     </section>
-    <section className="instant-resume-section"><h2 style={cssTextStyle(styles.education)}>EDUCATION</h2>
-      {resume.education.map(edu => <div key={edu.id} className="instant-education" style={cssTextStyle(styles.education)}><div className="instant-jobline"><div><strong>{edu.institution}</strong> — {edu.degree}</div><span>{formatEducationDates(edu)}</span></div>{edu.location.trim() && <div>{edu.location}</div>}</div>)}
+    <section className="instant-resume-section instant-education-section"><h2 style={cssTextStyle(styles.educationHeading)}>EDUCATION</h2>
+      {resume.education.map(edu => <div key={edu.id} className="instant-education" style={cssTextStyle(styles.education)}>
+        {omarLayout ? <><div><strong>{edu.degree}</strong></div><div className="instant-jobline"><strong>{edu.institution}{edu.location.trim() ? `, ${edu.location}` : ""}</strong><span>{formatEducationDates(edu)}</span></div></>
+        : <><div className="instant-jobline"><div><strong>{edu.institution}</strong> — {edu.degree}</div><span>{formatEducationDates(edu)}</span></div>{edu.location.trim() && <div>{edu.location}</div>}</>}
+      </div>)}
     </section>
   </article>;
 }
@@ -252,7 +271,20 @@ export default function HomePage() {
     try { localStorage.setItem("folio-resume-styles-v1", JSON.stringify(styles)); } catch {}
   }, [styles, initialized]);
   const updateStyle = (key: StyleKey, property: keyof TextStyle, value: string | number | boolean) => {
-    setStyles(current => ({ ...current, [key]: { ...current[key], [property]: value } }));
+    setStyles(current => SECTION_HEADING_KEYS.some(heading => heading === key)
+      ? updateSharedHeadingStyle(current, property, value)
+      : { ...current, [key]: { ...current[key], [property]: value, enabled: true, changed: [...new Set([...(current[key].changed ?? []), property])] } });
+  };
+  const updateOptionalStyle = (key: StyleKey, property: "lineSpacing" | "spaceAfter" | "leftIndent", raw: string, min: number, max: number) => {
+    setStyles(current => {
+      const next = { ...current[key] };
+      const parsed = Number(raw);
+      if (!raw.trim() || !Number.isFinite(parsed)) delete next[property];
+      else next[property] = Math.min(max, Math.max(min, parsed));
+      next.enabled = true;
+      next.changed = [...new Set([...(next.changed ?? []), property])];
+      return { ...current, [key]: next };
+    });
   };
   const checkHealth = useCallback(async () => {
     try {
@@ -1208,22 +1240,73 @@ export default function HomePage() {
 
             {section === "styles" && <div className="editor-content style-settings-panel">
               <SectionIntro number="03" eyebrow="TYPOGRAPHY" title="Style settings" subtitle="Choose fonts, sizes, colors and alignment independently for each resume area. Changes appear instantly in the draft preview and are included in Word/PDF exports." icon={<Settings2 size={21} />} />
-              <div className="style-category-grid">
-                {STYLE_KEYS.map(key => <button key={key} className={`style-category-tab ${selectedStyle === key ? "active" : ""}`} onClick={() => setSelectedStyle(key)}>{STYLE_LABELS[key]}</button>)}
+              <div className="style-group-collection">
+                {STYLE_GROUPS.map(group => <section key={group.label} className="style-group" aria-label={`${group.label} styles`}>
+                  <h3 className="style-group-label">{group.label}</h3>
+                  <div className="style-category-grid">
+                    {group.keys.map(key => <button key={key} type="button" className={`style-category-tab ${selectedStyle === key ? "active" : ""}`} aria-pressed={selectedStyle === key} onClick={() => setSelectedStyle(key)}>{STYLE_LABELS[key]}</button>)}
+                  </div>
+                </section>)}
               </div>
               <div className="style-property-box">
                 <div className="style-property-title"><strong>{STYLE_LABELS[selectedStyle]}</strong><span>Formatting for this part only</span></div>
+                <label className="style-checkbox" style={{marginBottom: 14}}>
+                  <input type="checkbox" checked={!styles[selectedStyle].enabled} onChange={e => setStyles(current => ({
+                    ...current, [selectedStyle]: { ...current[selectedStyle], enabled: !e.target.checked,
+                      changed: e.target.checked ? [] : (current[selectedStyle].changed ?? []) }
+                  }))} />
+                  Keep formatting from the uploaded Word template
+                </label>
+                <p className="field-help" style={{marginTop: 0, marginBottom: 12}}>
+                  {styles[selectedStyle].enabled
+                    ? "Custom formatting is applied to Word and Exact PDF. Only explicitly edited properties are overridden."
+                    : "Template formatting is preserved in Exact PDF. Editing any field below enables a custom override for that property."}
+                </p>
                 <div className="style-field-grid">
                   <label className="field"><span className="field-label">Font family</span><select value={styles[selectedStyle].font} onChange={e => updateStyle(selectedStyle, "font", e.target.value)}>{FONT_CHOICES.map(font => <option key={font}>{font}</option>)}</select></label>
                   <label className="field"><span className="field-label">Size (pt)</span><input type="number" min={7} max={36} step={0.5} value={styles[selectedStyle].size} onChange={e => updateStyle(selectedStyle, "size", Number(e.target.value))} /></label>
                   <label className="field"><span className="field-label">Text alignment</span><select value={styles[selectedStyle].align} onChange={e => updateStyle(selectedStyle, "align", e.target.value)}><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option><option value="justify">Justify</option></select></label>
                   <label className="field"><span className="field-label">Text color</span><input type="color" value={styles[selectedStyle].color} onChange={e => updateStyle(selectedStyle, "color", e.target.value)} /></label>
                 </div>
+                <div className="style-field-grid style-paragraph-controls">
+                  <label className="field"><span className="field-label">Line spacing</span><input type="number" min={1} max={2.5} step={0.05} placeholder="Template default" value={styles[selectedStyle].lineSpacing ?? ""} onChange={e => updateOptionalStyle(selectedStyle, "lineSpacing", e.target.value, 1, 2.5)} /></label>
+                  <label className="field"><span className="field-label">Space after (pt)</span><input type="number" min={0} max={36} step={1} placeholder="Template default" value={styles[selectedStyle].spaceAfter ?? ""} onChange={e => updateOptionalStyle(selectedStyle, "spaceAfter", e.target.value, 0, 36)} /></label>
+                  {(["skills", "experienceBullets"].includes(selectedStyle)) && <label className="field"><span className="field-label">Left indent (pt)</span><input type="number" min={0} max={72} step={1} placeholder="Template default" value={styles[selectedStyle].leftIndent ?? ""} onChange={e => updateOptionalStyle(selectedStyle, "leftIndent", e.target.value, 0, 72)} /></label>}
+                </div>
                 <label className="style-checkbox"><input type="checkbox" checked={styles[selectedStyle].bold} onChange={e => updateStyle(selectedStyle, "bold", e.target.checked)} /><Bold size={17} /> Bold text</label>
-                <div className="style-sample" style={cssTextStyle(styles[selectedStyle])}>The quick brown fox jumps over the lazy dog.</div>
+                <div className="style-sample" style={cssTextStyle(styles[selectedStyle])}>{selectedStyle === "skillsHeading" ? "SKILLS" : selectedStyle === "skills" ? "Languages: Python, React, TypeScript" : selectedStyle === "experienceHeading" ? "WORK EXPERIENCE" : selectedStyle === "experience" ? "Senior Engineer — Acme Technologies, 2022–Present" : selectedStyle === "experienceDescription" ? "Built scalable platforms for enterprise customers." : selectedStyle === "experienceBullets" ? "• Improved application performance by 35%." : selectedStyle === "educationHeading" ? "EDUCATION" : selectedStyle === "education" ? "State University — B.S. Computer Science, 2018–2022" : "The quick brown fox jumps over the lazy dog."}</div>
+              </div>
+              <div className="heading-style-editor" aria-label="Shared section heading style">
+                <div className="heading-style-editor-title">
+                  <strong>Custom heading style</strong>
+                  <p>One style for Skills, Work Experience, and Education. Changing a setting updates all three headings in the preview and Word / PDF exports.</p>
+                </div>
+                <div className="heading-style-card">
+                  <div className="heading-style-card-top">
+                    <strong>All section headings</strong>
+                    <button type="button" className="heading-restore-button" onClick={() => setStyles(restoreSharedHeadingStyle)}>Use Word template style</button>
+                  </div>
+                  <div className="heading-style-state" aria-live="polite">
+                    {styles.skillsHeading.enabled && (styles.skillsHeading.changed?.length ?? 0) > 0
+                      ? "Using one custom heading style for all sections"
+                      : "Using uploaded Word template heading formatting"}
+                  </div>
+                  <div className="style-field-grid">
+                    <label className="field"><span className="field-label">Font family</span><select aria-label="Section heading font family" value={styles.skillsHeading.font} onChange={e => updateStyle("skillsHeading", "font", e.target.value)}>{FONT_CHOICES.map(font => <option key={font} value={font}>{font}</option>)}</select></label>
+                    <label className="field"><span className="field-label">Size (pt)</span><input aria-label="Section heading font size" type="number" min={7} max={36} step={0.5} value={styles.skillsHeading.size} onChange={e => { const size = Number(e.target.value); if (Number.isFinite(size) && size >= 7 && size <= 36) updateStyle("skillsHeading", "size", size); }} /></label>
+                    <label className="field"><span className="field-label">Alignment</span><select aria-label="Section heading alignment" value={styles.skillsHeading.align} onChange={e => updateStyle("skillsHeading", "align", e.target.value)}><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option><option value="justify">Justify</option></select></label>
+                    <label className="field"><span className="field-label">Text color</span><input aria-label="Section heading text color" type="color" value={styles.skillsHeading.color} onChange={e => updateStyle("skillsHeading", "color", e.target.value)} /></label>
+                  </div>
+                  <label className="style-checkbox"><input type="checkbox" checked={styles.skillsHeading.bold} onChange={e => updateStyle("skillsHeading", "bold", e.target.checked)} /> <Bold size={16}/> Bold</label>
+                  <div className="heading-style-sample" aria-label="Shared heading preview">
+                    {(["SKILLS", "WORK EXPERIENCE", "EDUCATION"] as const).map(label =>
+                      <div key={label} className="heading-style-sample-line" style={cssTextStyle(styles.skillsHeading)}>{label}</div>)}
+                  </div>
+                  {!styles.skillsHeading.enabled && <p className="heading-style-hint">The values above are editable starting values, not measured from your Word template. Edit any setting to apply one custom style to all three headings.</p>}
+                </div>
               </div>
               <div className="style-panel-footer"><button className="button outlined-button" onClick={() => setStyles(DEFAULT_STYLES)}><RotateCcw size={15} /> Reset styles</button><button className="button primary-button" onClick={() => switchSection("export")}>Continue to export <ArrowRight size={16} /></button></div>
-              <p className="style-note">The instant preview is a fast HTML layout approximation. Select Exact PDF to verify your uploaded Word template's actual pagination and spacing.</p>
+              <p className="style-note">A single custom heading style affects Skills, Work Experience, and Education together. Exact PDF uses the updated Word document; Instant Preview is an HTML approximation.</p>
             </div>}
 
             {section === "template" && <div className="editor-content">
@@ -1300,7 +1383,7 @@ export default function HomePage() {
         <section className={`preview-panel ${mobilePanel === "edit" ? "mobile-hidden" : ""}`} aria-label="Resume preview">
           <div className="preview-toolbar"><div className="preview-toolbar-left"><span className="preview-eyebrow">LIVE DOCUMENT PREVIEW</span><span className="preview-tag"><span className="live-dot" /> {previewMode === "instant" ? "Instant draft" : "Exact Word layout"}</span></div><div className="preview-toolbar-right"><label className="quick-template-choice"><span className="sr-only">Active Word template</span><Layers3 size={14} /><select aria-label="Active Word template" value={selectedTemplateId ?? ""} disabled={templateLibraryBusy || !templateLibrary.length} onChange={event => void chooseTemplate(event.target.value)}>{!templateLibrary.length && <option value="">No template</option>}{templateLibrary.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><div className="preview-mode-switch" role="group" aria-label="Preview mode"><button className={previewMode === "instant" ? "selected" : ""} onClick={() => setPreviewMode("instant")}>Instant</button><button className={previewMode === "pdf" ? "selected" : ""} onClick={() => setPreviewMode("pdf")}>Exact PDF</button></div><button className="preview-refresh" title="Refresh exact PDF" aria-label="Refresh exact PDF" disabled={!template || renderState === "generating"} onClick={() => { setPreviewMode("pdf"); void generatePreview(true); }}><RefreshCw size={17} className={renderState === "generating" ? "spin" : ""} /></button></div></div>
           <div className="preview-stage">
-            {showInstantDraft ? <div className="instant-paper-wrap"><InstantResumePreview resume={resume} styles={styles} /></div> : previewUrl ? <div className="paper-wrap"><iframe title="Generated PDF resume preview" src={`${previewUrl}#toolbar=0&navpanes=0&zoom=page-width`} className="pdf-frame" /></div> : <div className="empty-preview"><div className="empty-paper"><img alt="Example one-page resume output" src="/images/sample-resume.png" /></div><div className="empty-overlay"><div className="empty-state-icon">{renderState === "generating" ? <LoaderCircle className="spin" size={26} /> : <FileText size={26} />}</div><strong>{renderState === "generating" ? "Building your preview" : renderState === "error" ? "Preview unavailable" : "Your resume preview"}</strong><p>{renderState === "generating" ? "Formatting your Word template into a PDF…" : renderState === "error" ? previewError : "Your generated PDF will appear here once the document engine is running."}</p>{renderState !== "generating" && <button className="button primary-button" onClick={() => { void checkHealth(); void generatePreview(); }}><RefreshCw size={16} /> Try again</button>}</div></div>}
+            {showInstantDraft ? <div className="instant-paper-wrap"><InstantResumePreview resume={resume} styles={styles} omarLayout={/omar/i.test(template?.name ?? "")} /></div> : previewUrl ? <div className="paper-wrap"><iframe title="Generated PDF resume preview" src={`${previewUrl}#toolbar=0&navpanes=0&zoom=page-width`} className="pdf-frame" /></div> : <div className="empty-preview"><div className="empty-paper"><img alt="Example one-page resume output" src="/images/sample-resume.png" /></div><div className="empty-overlay"><div className="empty-state-icon">{renderState === "generating" ? <LoaderCircle className="spin" size={26} /> : <FileText size={26} />}</div><strong>{renderState === "generating" ? "Building your preview" : renderState === "error" ? "Preview unavailable" : "Your resume preview"}</strong><p>{renderState === "generating" ? "Formatting your Word template into a PDF…" : renderState === "error" ? previewError : "Your generated PDF will appear here once the document engine is running."}</p>{renderState !== "generating" && <button className="button primary-button" onClick={() => { void checkHealth(); void generatePreview(); }}><RefreshCw size={16} /> Try again</button>}</div></div>}
             {previewMode === "pdf" && exactPreviewIsStale && <div className="preview-loading"><LoaderCircle size={16} className="spin" /> Live draft shown · Updating exact PDF…</div>}
             {previewMode === "pdf" && previewUrl && renderState === "error" && <div className="preview-failure"><CircleAlert size={17} /><span>{previewError}</span><button onClick={() => void generatePreview()}>Retry</button></div>}
           </div>

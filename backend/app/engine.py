@@ -121,12 +121,25 @@ def replace_fields(element, context):
 # User-controlled typography is applied after field replacement to each cloned
 # Word paragraph. Uploaded template margins/tables/bullets remain unchanged.
 FONT_ALLOWLIST = {'Times New Roman', 'Arial', 'Calibri', 'Aptos', 'Georgia', 'Verdana'}
-STYLE_KEYS = {'name', 'role', 'personal', 'summary', 'skills', 'experience', 'education', 'body'}
+STYLE_KEYS = {
+    'name', 'role', 'personal', 'summary', 'body',
+    'skillsHeading', 'skills', 'experienceHeading', 'experience',
+    'experienceDescription', 'experienceBullets',
+    'educationHeading', 'education',
+}
+# Mapping both old single-style payloads and the new finer-grained style controls.
+LEGACY_STYLE = {
+    'skillsHeading': 'skills', 'experienceHeading': 'experience',
+    'educationHeading': 'education',
+    'experienceDescription': 'body', 'experienceBullets': 'body',
+}
 SECTION_HEADINGS = {
     'SUMMARY': 'summary', 'PROFESSIONAL SUMMARY': 'summary',
-    'SKILLS': 'skills', 'TECHNICAL SKILLS': 'skills', 'SKILLS & EXPERTISE': 'skills',
-    'EXPERIENCE': 'experience', 'WORK EXPERIENCE': 'experience', 'PROFESSIONAL EXPERIENCE': 'experience',
-    'EDUCATION': 'education', 'EDUCATION & TRAINING': 'education',
+    'SKILLS': 'skillsHeading', 'TECHNICAL SKILLS': 'skillsHeading',
+    'SKILLS & EXPERTISE': 'skillsHeading',
+    'EXPERIENCE': 'experienceHeading', 'WORK EXPERIENCE': 'experienceHeading',
+    'PROFESSIONAL EXPERIENCE': 'experienceHeading',
+    'EDUCATION': 'educationHeading', 'EDUCATION & TRAINING': 'educationHeading',
 }
 
 def which_style(original: str, parent_context: dict) -> str:
@@ -140,8 +153,8 @@ def which_style(original: str, parent_context: dict) -> str:
     if any('{{ '+x in original for x in ('email', 'phone', 'location', 'linkedin')): return 'personal'
     if '{{ summary' in original: return 'summary'
     if any('{{ '+x in original for x in ('skills_text', 'category.')): return 'skills'
-    if '{{ exp.description' in original: return 'body'
-    if '{{ bullet.' in original: return 'body'
+    if '{{ exp.description' in original: return 'experienceDescription'
+    if '{{ bullet.' in original: return 'experienceBullets'
     if '{{ exp.' in original: return 'experience'
     if '{{ ed.' in original: return 'education'
     return 'body'
@@ -169,19 +182,59 @@ def apply_paragraph_style(paragraph, category: str, styles: dict):
         return
     style = styles.get(category)
     if not isinstance(style, dict):
+        style = styles.get(LEGACY_STYLE.get(category, ''))
+    if not isinstance(style, dict):
         return
+    # A user-uploaded Word template is the formatting authority by default.
+    # The frontend marks its built-in visual defaults as disabled. Previously
+    # those defaults silently replaced centered/bold headings with 11pt left.
+    if style.get('enabled') is False:
+        return
+    # For newly edited styles, apply only the properties the user changed;
+    # leave other formatting (including center alignment and bold) intact.
+    changed = style.get('changed')
+    if isinstance(changed, list):
+        # A saved style can be enabled while its changed list is empty (for
+        # example after migration from a prior GuruCorp version). Applying its
+        # default font/size/alignment would overwrite the Word template.
+        allowed = {'font', 'size', 'color', 'align', 'bold', 'lineSpacing', 'spaceAfter', 'leftIndent'}
+        selected = set(changed).intersection(allowed)
+        if not selected:
+            return
+        style = {k: v for k, v in style.items() if k in selected}
     font = style.get('font')
     size = style.get('size')
     color = style.get('color')
     align = style.get('align')
     bold = style.get('bold')
+    line_spacing = style.get('lineSpacing')
+    space_after = style.get('spaceAfter')
+    left_indent = style.get('leftIndent')
     if font not in FONT_ALLOWLIST: font = None
     if type(size) not in (int,float) or not 7 <= size <= 36: size = None
     if not isinstance(color,str) or not re.fullmatch(r'#[0-9a-fA-F]{6}', color): color = None
     if align not in ('left','right','center','justify'): align = None
+    if type(line_spacing) not in (int, float) or not 1 <= line_spacing <= 2.5: line_spacing = None
+    if type(space_after) not in (int, float) or not 0 <= space_after <= 36: space_after = None
+    if type(left_indent) not in (int, float) or not 0 <= left_indent <= 72: left_indent = None
+    if line_spacing is not None or space_after is not None:
+        ppr = set_child(paragraph, 'w:pPr')
+        spacing = ppr.get_or_add_spacing()
+        if line_spacing is not None:
+            spacing.set(qn('w:line'), str(round(line_spacing * 240)))
+            spacing.set(qn('w:lineRule'), 'auto')
+        if space_after is not None:
+            spacing.set(qn('w:after'), str(round(space_after * 20)))
+    # Do not change Word's indentation unless the user explicitly sets it.
+    if left_indent is not None and category in ('skills', 'experienceBullets'):
+        ppr = set_child(paragraph, 'w:pPr')
+        indentation = ppr.get_or_add_ind()
+        indentation.set(qn('w:left'), str(round(left_indent * 20)))
+        if category == 'experienceBullets' and indentation.get(qn('w:hanging')) is None:
+            indentation.set(qn('w:hanging'), str(round(min(12, left_indent) * 20)))
     if align:
         ppr = set_child(paragraph, 'w:pPr')
-        jc = set_child(ppr, 'w:jc')
+        jc = ppr.get_or_add_jc()
         jc.set(qn('w:val'), 'both' if align == 'justify' else align)
     for run in paragraph.iter(qn('w:r')):
         rpr = set_child(run, 'w:rPr')
@@ -198,9 +251,11 @@ def apply_paragraph_style(paragraph, category: str, styles: dict):
             c = set_child(rpr, 'w:color')
             c.set(qn('w:val'), color[1:])
         # Do not remove per-word bold supplied by **text** markup.
-        if bold is True:
+        # Preserve explicit rich-text **keyword** bold in summary/bullets.
+        # For headings, an explicit false should override template bold.
+        if bold is True or (bold is False and (category.endswith('Heading') or rpr.find(qn('w:b')) is None)):
             b = set_child(rpr, 'w:b')
-            b.set(qn('w:val'), '1')
+            b.set(qn('w:val'), '1' if bold else '0')
 
 def expand_paragraphs(elements, context):
     output = []
