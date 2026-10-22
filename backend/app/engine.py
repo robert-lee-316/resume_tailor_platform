@@ -39,7 +39,7 @@ def text_of(element):
 BOLD_MARKUP = re.compile(r"\*\*(.+?)\*\*", re.DOTALL)
 
 
-def apply_bold_markup(node, value: str):
+def apply_bold_markup(node, value: str, regular_default: bool = False):
     """Turn **keywords** into actual bold Word runs, preserving template fonts.
 
     Handles placeholders surrounded by text in the same run, e.g.
@@ -82,22 +82,21 @@ def apply_bold_markup(node, value: str):
             new_node.text = segment
             if segment != segment.strip():
                 new_node.set('{http://www.w3.org/XML/1998/namespace}space', 'preserve')
-            if is_bold:
-                rpr = new_run.find(qn('w:rPr'))
-                if rpr is None:
-                    rpr = OxmlElement('w:rPr')
-                    new_run.insert(0, rpr)
-                b = rpr.find(qn('w:b'))
-                if b is None:
-                    b = OxmlElement('w:b')
-                    rpr.append(b)
-                b.set(qn('w:val'), '1')
+            if is_bold or regular_default:
+                # An uploaded Word template can specify bold on its placeholder
+                # run or paragraph style. Explicitly neutralize it for summary
+                # body text; only **selected keywords** should remain bold.
+                rpr = set_child(new_run, 'w:rPr')
+                b = set_child(rpr, 'w:b')
+                b.set(qn('w:val'), '1' if is_bold else '0')
+                bcs = set_child(rpr, 'w:bCs')
+                bcs.set(qn('w:val'), '1' if is_bold else '0')
             parent.insert(position, new_run)
             position += 1
     parent.remove(source_run)
 
 
-def replace_fields(element, context):
+def replace_fields(element, context, category: str = ""):
     # Preserve the uploaded Word template's paragraph and run formatting.
     # Values can contain **important words**; they become real Word bold runs.
     for node in list(element.iter(qn('w:t'))):
@@ -110,8 +109,8 @@ def replace_fields(element, context):
             return '' if value is None else str(value)
         original = node.text
         rendered = FIELD.sub(convert, original)
-        if rendered != original and ('**' in rendered or '\n' in rendered):
-            apply_bold_markup(node, rendered)
+        if rendered != original and (category == 'summary' or '**' in rendered or '\n' in rendered):
+            apply_bold_markup(node, rendered, regular_default=(category == 'summary'))
         else:
             node.text = rendered
     remaining = text_of(element)
@@ -190,6 +189,14 @@ def apply_paragraph_style(paragraph, category: str, styles: dict):
     # those defaults silently replaced centered/bold headings with 11pt left.
     if style.get('enabled') is False:
         return
+    # The Summary uses keyword-level bold (**word**) instead of whole-
+    # paragraph bold. Old browser sessions may have saved an accidental
+    # bold=True summary override; never let it turn the entire summary bold.
+    # Paragraph typography (font, size, alignment, color) still applies.
+    if category == 'summary':
+        style = {**style, 'bold': None}
+        if isinstance(style.get('changed'), list):
+            style['changed'] = [key for key in style['changed'] if key != 'bold']
     # For newly edited styles, apply only the properties the user changed;
     # leave other formatting (including center alignment and bold) intact.
     changed = style.get('changed')
@@ -325,8 +332,8 @@ def expand_paragraphs(elements, context):
             index += 1
             continue
         new = copy.deepcopy(current)
-        replace_fields(new, context)
         category = which_style(content, context)
+        replace_fields(new, context, category)
         styles = context.get('_styles', {})
         apply_paragraph_style(new, category, styles)
         keep_bullets_inside_page(new, category, styles)

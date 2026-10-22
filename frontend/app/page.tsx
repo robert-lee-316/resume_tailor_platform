@@ -69,6 +69,64 @@ function TextArea({ label, value, placeholder, onChange, onKeyDown, onSelect, ro
   </label>;
 }
 
+/** Display stored skills as removable tags. Only the add field is editable. */
+function SkillKeywordEditor({ category, categoryIndex, onAdd, onRemove }: {
+  category: SkillCategory;
+  categoryIndex: number;
+  onAdd: (values: string[]) => void;
+  onRemove: (index: number) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  const displayed = category.skills.map((value, index) => ({ value: value.trim(), index })).filter(item => item.value);
+  const remaining = Math.max(0, 40 - displayed.length);
+
+  const commit = (raw: string) => {
+    const candidates = raw.split(/[,;\n\r]+/).map(value => value.trim()).filter(Boolean);
+    if (!candidates.length) return;
+    onAdd(candidates);
+    setDraft("");
+    inputRef.current?.focus();
+  };
+
+  return <div className="skill-category-skills skill-keyword-editor" aria-label={`Skills in ${category.name || `category ${categoryIndex + 1}`}`}>
+    <div className="skill-keyword-list" role="list" aria-label="Skill keywords">
+      {displayed.map(({ value, index }) => <span className="skill-keyword-tag" role="listitem" key={`${category.id}-${index}`}>
+        <span className="skill-keyword-label">{value}</span>
+        <button type="button" className="skill-keyword-delete" onClick={() => onRemove(index)}
+          title={`Remove ${value}`} aria-label={`Remove ${value} from ${category.name || `category ${categoryIndex + 1}`}`}>
+          <X size={12} strokeWidth={2.4} aria-hidden="true" />
+        </button>
+      </span>)}
+      {!displayed.length && <span className="skill-keyword-empty">No keywords yet</span>}
+    </div>
+    <div className="skill-keyword-add">
+      <input ref={inputRef} value={draft} maxLength={250} disabled={remaining === 0}
+        placeholder={remaining === 0 ? "Skill limit reached" : "Add keywords (e.g. React, Node.js)"}
+        aria-label={`New skill keyword in ${category.name || `category ${categoryIndex + 1}`}`}
+        onChange={event => setDraft(event.target.value)}
+        onKeyDown={event => {
+          if (event.key === "Enter" || event.key === ",") {
+            event.preventDefault();
+            commit(draft);
+          } else if (event.key === "Backspace" && !draft && displayed.length) {
+            event.preventDefault();
+            onRemove(displayed[displayed.length - 1].index);
+          }
+        }}
+        onPaste={event => {
+          const pasted = event.clipboardData.getData("text");
+          if (/[,;\n\r]/.test(pasted)) {
+            event.preventDefault();
+            commit(draft + pasted);
+          }
+        }} />
+      <button type="button" className="skill-keyword-add-button" disabled={!draft.trim() || remaining === 0}
+        onClick={() => commit(draft)} title="Add keyword" aria-label="Add skill keyword"><Plus size={16} /></button>
+    </div>
+  </div>;
+}
+
 function SectionIntro({ number, eyebrow, title, subtitle, icon }: {
   number: string; eyebrow: string; title: string; subtitle: string; icon: ReactNode;
 }) {
@@ -111,7 +169,7 @@ function InstantResumePreview({ resume, styles, omarLayout = false }: { resume: 
     </header>
     <section className="instant-resume-section instant-summary">
       {!omarLayout && <h2 style={cssTextStyle(styles.summary)}>SUMMARY</h2>}
-      <div style={cssTextStyle(styles.summary)} className="instant-text"><BoldPreview value={resume.summary} /></div>
+      <div style={{...cssTextStyle(styles.summary), fontWeight: 400}} className="instant-text"><BoldPreview value={resume.summary} /></div>
     </section>
     <section className="instant-resume-section instant-skills-section">
       <h2 style={cssTextStyle(styles.skillsHeading)}> {omarLayout ? "SKILLS" : "TECHNICAL SKILLS"}</h2>
@@ -275,6 +333,9 @@ export default function HomePage() {
     try { localStorage.setItem("folio-resume-styles-v1", JSON.stringify(styles)); } catch {}
   }, [styles, initialized]);
   const updateStyle = (key: StyleKey, property: keyof TextStyle, value: string | number | boolean) => {
+    // Summary bold belongs to selected keywords only, never a whole-paragraph
+    // override. Historical saved summary bold defaults are migrated on load.
+    if (key === "summary" && property === "bold") return;
     setStyles(current => SECTION_HEADING_KEYS.some(heading => heading === key)
       ? updateSharedHeadingStyle(current, property, value)
       : { ...current, [key]: { ...current[key], [property]: value, enabled: true, changed: [...new Set([...(current[key].changed ?? []), property])] } });
@@ -339,7 +400,7 @@ export default function HomePage() {
   };
 
   const addSkillCategory = () => setSkillCategories(current => current.length >= 30 ? current : [
-    ...current, { id: crypto.randomUUID(), name: "", skills: [""] },
+    ...current, { id: crypto.randomUUID(), name: "", skills: [] },
   ]);
   const updateSkillCategory = (id: string, name: string) => setSkillCategories(current => current.map(category =>
     category.id === id ? { ...category, name } : category,
@@ -378,12 +439,20 @@ export default function HomePage() {
     draggedSkillCategory.current = null;
     setSkillCategoryDropTarget(null);
   };
-  const addSkill = (id: string) => setSkillCategories(current => current.map(category =>
-    category.id === id && category.skills.length < 40 ? { ...category, skills: [...category.skills, ""] } : category,
-  ));
-  const updateSkill = (id: string, index: number, value: string) => setSkillCategories(current => current.map(category =>
-    category.id === id ? { ...category, skills: category.skills.map((skill, skillIndex) => skillIndex === index ? value : skill) } : category,
-  ));
+  const addSkillKeywords = (id: string, candidates: string[]) => setSkillCategories(current => current.map(category => {
+    if (category.id !== id) return category;
+    // Imported/older resumes may contain blank skill slots. Hide and discard them
+    // when adding tags, while preserving the existing order and export format.
+    const skills = category.skills.map(skill => skill.trim()).filter(Boolean);
+    const seen = new Set(skills.map(skill => skill.toLocaleLowerCase()));
+    for (const raw of candidates) {
+      const skill = raw.trim().slice(0, 250);
+      if (!skill || skills.length >= 40 || seen.has(skill.toLocaleLowerCase())) continue;
+      skills.push(skill);
+      seen.add(skill.toLocaleLowerCase());
+    }
+    return { ...category, skills };
+  }));
   const removeSkill = (id: string, index: number) => setSkillCategories(current => current.map(category =>
     category.id === id ? { ...category, skills: category.skills.filter((_, skillIndex) => skillIndex !== index) } : category,
   ));
@@ -1081,6 +1150,10 @@ export default function HomePage() {
               <div className="rich-text-header"><span className="field-label">Format selected keywords</span>
                 <div className="summary-format-tools">
                   <button type="button" className="rich-bold-button" title="Bold selected summary text (Ctrl+B / Cmd+B)" aria-label="Bold selected summary text" onMouseDown={event => event.preventDefault()} onClick={toggleSummaryBold}><Bold size={15} /> Bold selection <span aria-hidden="true">(Ctrl+B)</span></button>
+                  <button type="button" className="rich-bold-button" title="Remove all bold markup from summary" onClick={() => {
+                    const plain = resume.summary.replace(/\*\*(.*?)\*\*/gs, "$1");
+                    if (plain !== resume.summary) updateSummaryText(plain);
+                  }}><Bold size={15} /> Remove all bold</button>
                   <button type="button" className="rich-bold-button" title="Undo (Ctrl+Z)" aria-label="Undo summary edit" disabled={!summaryHistory.current.past.length} onMouseDown={event => event.preventDefault()} onClick={undoSummary}><Undo2 size={15} /> Undo</button>
                   <button type="button" className="rich-bold-button" title="Redo (Ctrl+Y)" aria-label="Redo summary edit" disabled={!summaryHistory.current.future.length} onMouseDown={event => event.preventDefault()} onClick={redoSummary}><Redo2 size={15} /> Redo</button>
                 </div></div>
@@ -1228,7 +1301,7 @@ export default function HomePage() {
             </div>}
 
             {section === "skills" && <div className="editor-content">
-              <SectionIntro number="05" eyebrow="YOUR TOOLKIT" title="Skills & expertise" subtitle="Organize your expertise by category. Drag categories into order or use the arrow buttons; the resume follows the same order." icon={<Activity size={21} />} />
+              <SectionIntro number="05" eyebrow="YOUR TOOLKIT" title="Skills & expertise" subtitle="Organize skills as removable keyword tags. Press Enter to add, paste comma-separated keywords, and drag categories into your preferred order." icon={<Activity size={21} />} />
               <div className="skill-category-list">
                 {resume.skill_categories.map((category, categoryIndex) => <div
                   className={`skill-category-row${skillCategoryDropTarget === category.id ? " skill-category-drop-target" : ""}`}
@@ -1261,22 +1334,9 @@ export default function HomePage() {
                         onChange={event => updateSkillCategory(category.id, event.target.value)} />
                     </label>
                     <span className="skill-category-colon" aria-hidden="true">:</span>
-                    <div className="skill-category-skills">
-                      {category.skills.map((skill, skillIndex) => <div className="skill-entry" key={`${category.id}-${skillIndex}`}>
-                        <input value={skill} placeholder={`Skill ${skillIndex + 1}`} maxLength={250}
-                          aria-label={`Skill ${skillIndex + 1} in category ${categoryIndex + 1}`}
-                          onChange={event => updateSkill(category.id, skillIndex, event.target.value)}
-                          onKeyDown={event => {
-                            if (event.key === "Enter") { event.preventDefault(); addSkill(category.id); }
-                          }} />
-                        <button type="button" className="skill-entry-remove" title="Remove skill"
-                          aria-label={`Remove skill ${skillIndex + 1} from category ${categoryIndex + 1}`}
-                          onClick={() => removeSkill(category.id, skillIndex)}><X size={13} /></button>
-                      </div>)}
-                      <button type="button" className="skill-plus" disabled={category.skills.length >= 40}
-                        aria-label={`Add skill to category ${categoryIndex + 1}`} title="Add another skill"
-                        onClick={() => addSkill(category.id)}><Plus size={19} /> <span>Add skill</span></button>
-                    </div>
+                    <SkillKeywordEditor category={category} categoryIndex={categoryIndex}
+                      onAdd={values => addSkillKeywords(category.id, values)}
+                      onRemove={index => removeSkill(category.id, index)} />
                   </div>
                   <button type="button" className="skill-category-delete" title="Remove category"
                     aria-label={`Remove skill category ${categoryIndex + 1}`}
@@ -1330,7 +1390,7 @@ export default function HomePage() {
                     : "The Word template determines this section's formatting. Change any value below to override it."}
                 </p>
                 <div className="style-field-grid">
-                  <label className="field"><span className="field-label">Font family</span><select value={styles[selectedStyle].font} onChange={e => updateStyle(selectedStyle, "font", e.target.value)}>{FONT_CHOICES.map(font => <option key={font}>{font}</option>)}</select></label>
+                  <label className="field"><span className="field-label">Font family</span><select value={styles[selectedStyle].font} onChange={e => updateStyle(selectedStyle, "font", e.target.value)}><option value="">Use Word template font</option>{FONT_CHOICES.map(font => <option key={font} value={font}>{font}</option>)}</select></label>
                   <label className="field"><span className="field-label">Size (pt)</span><input type="number" min={7} max={36} step={0.5} value={styles[selectedStyle].size} onChange={e => updateStyle(selectedStyle, "size", Number(e.target.value))} /></label>
                   <label className="field"><span className="field-label">Text alignment</span><select value={styles[selectedStyle].align} onChange={e => updateStyle(selectedStyle, "align", e.target.value)}><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option><option value="justify">Justify</option></select></label>
                   <label className="field"><span className="field-label">Text color</span><input type="color" value={styles[selectedStyle].color} onChange={e => updateStyle(selectedStyle, "color", e.target.value)} /></label>
@@ -1340,7 +1400,11 @@ export default function HomePage() {
                   <label className="field"><span className="field-label">Space after (pt)</span><input type="number" min={0} max={36} step={1} placeholder="Template default" value={styles[selectedStyle].spaceAfter ?? ""} onChange={e => updateOptionalStyle(selectedStyle, "spaceAfter", e.target.value, 0, 36)} /></label>
                   {(["skills", "experienceBullets"].includes(selectedStyle)) && <label className="field"><span className="field-label">Left indent (pt)</span><input type="number" min={0} max={72} step={1} placeholder="Template default" value={styles[selectedStyle].leftIndent ?? ""} onChange={e => updateOptionalStyle(selectedStyle, "leftIndent", e.target.value, 0, 72)} /></label>}
                 </div>
-                <label className="style-checkbox"><input type="checkbox" checked={styles[selectedStyle].bold} onChange={e => updateStyle(selectedStyle, "bold", e.target.checked)} /><Bold size={17} /> Bold text</label>
+                {selectedStyle === "summary" ? (
+                  <p className="field-help" role="note">Summary text is regular by default. To bold specific words, select them in Professional Summary and press Ctrl+B (or use Bold selection).</p>
+                ) : (
+                  <label className="style-checkbox"><input type="checkbox" checked={styles[selectedStyle].bold} onChange={e => updateStyle(selectedStyle, "bold", e.target.checked)} /><Bold size={17} /> Bold text</label>
+                )}
                 <div className="style-sample" style={cssTextStyle(styles[selectedStyle])}>{selectedStyle === "skillsHeading" ? "SKILLS" : selectedStyle === "skills" ? "Languages: Python, React, TypeScript" : selectedStyle === "experienceHeading" ? "WORK EXPERIENCE" : selectedStyle === "experience" ? "Senior Engineer — Acme Technologies, 2022–Present" : selectedStyle === "experienceDescription" ? "Built scalable platforms for enterprise customers." : selectedStyle === "experienceBullets" ? "• Improved application performance by 35%." : selectedStyle === "educationHeading" ? "EDUCATION" : selectedStyle === "education" ? "State University — B.S. Computer Science, 2018–2022" : "The quick brown fox jumps over the lazy dog."}</div>
               </div>
               <div className="heading-style-editor" aria-label="Shared section heading style">
@@ -1358,8 +1422,8 @@ export default function HomePage() {
                       ? "Using one custom heading style for all sections"
                       : "Using uploaded Word template heading formatting"}
                   </div>
-                  <div className="style-field-grid">
-                    <label className="field"><span className="field-label">Font family</span><select aria-label="Section heading font family" value={styles.skillsHeading.font} onChange={e => updateStyle("skillsHeading", "font", e.target.value)}>{FONT_CHOICES.map(font => <option key={font} value={font}>{font}</option>)}</select></label>
+                  <div className="heading-style-controls">
+                    <label className="field"><span className="field-label">Font family</span><select aria-label="Section heading font family" value={styles.skillsHeading.font} onChange={e => updateStyle("skillsHeading", "font", e.target.value)}><option value="">Use Word template font</option>{FONT_CHOICES.map(font => <option key={font} value={font}>{font}</option>)}</select></label>
                     <label className="field"><span className="field-label">Size (pt)</span><input aria-label="Section heading font size" type="number" min={7} max={36} step={0.5} value={styles.skillsHeading.size} onChange={e => { const size = Number(e.target.value); if (Number.isFinite(size) && size >= 7 && size <= 36) updateStyle("skillsHeading", "size", size); }} /></label>
                     <label className="field"><span className="field-label">Alignment</span><select aria-label="Section heading alignment" value={styles.skillsHeading.align} onChange={e => updateStyle("skillsHeading", "align", e.target.value)}><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option><option value="justify">Justify</option></select></label>
                     <label className="field"><span className="field-label">Text color</span><input aria-label="Section heading text color" type="color" value={styles.skillsHeading.color} onChange={e => updateStyle("skillsHeading", "color", e.target.value)} /></label>

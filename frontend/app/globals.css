@@ -486,3 +486,35 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,[role=button]:fo
 .skill-category-move:disabled{opacity:.27;cursor:not-allowed}
 .skill-category-row.skill-category-drop-target{border-color:#b77a20;background:#fff9ee;box-shadow:0 0 0 2px rgba(183,122,32,.16)}
 @media(max-width:700px){.skill-category-reorder{gap:2px}.skill-category-move,.skill-category-drag-handle{width:26px;height:26px}}
+
+/* Keyword tags: one compact add field replaces individual skill input boxes. */
+.skill-keyword-editor{align-items:center;gap:7px;min-height:43px}
+.skill-keyword-tag{display:inline-flex;align-items:center;gap:6px;min-height:32px;max-width:100%;padding:4px 5px 4px 11px;border:1px solid #e8d7b9;border-radius:999px;background:#fff8ed;color:#5c461e;font-size:12px;font-weight:600;line-height:1.35}
+.skill-keyword-label{overflow-wrap:anywhere;min-width:0}
+.skill-keyword-delete{display:grid;place-items:center;flex:0 0 22px;width:22px;height:22px;border:0;border-radius:50%;background:transparent;color:#987a4e;cursor:pointer}
+.skill-keyword-delete:hover{background:#f7dbda;color:#a83232}
+.skill-keyword-delete:focus-visible,.skill-keyword-add-button:focus-visible{outline:2px solid #b77a20;outline-offset:2px}
+.skill-keyword-add{display:flex;align-items:center;flex:1 1 150px;min-width:145px;max-width:270px;height:36px;border:1px dashed #d9b477;border-radius:9px;background:#fff;overflow:hidden;transition:border-color .16s,box-shadow .16s}
+.skill-keyword-add:focus-within{border-color:#b77a20;box-shadow:0 0 0 3px rgba(183,122,32,.11)}
+.skill-keyword-add input{flex:1;min-width:0;width:100%;height:100%;border:0;outline:0;padding:0 10px;color:#273247;background:transparent;font:inherit;font-size:12px}
+.skill-keyword-add input::placeholder{color:#9b8c76}
+.skill-keyword-add input:disabled{background:#f5f3ef}
+.skill-keyword-add-button{display:grid;place-items:center;flex:0 0 33px;height:100%;border:0;border-left:1px solid #f3e5d1;background:#fffaf3;color:#af751f;cursor:pointer}
+.skill-keyword-add-button:hover:not(:disabled){background:#f6e5ca}
+.skill-keyword-add-button:disabled{opacity:.35;cursor:not-allowed}
+@media(max-width:700px){.skill-keyword-add{max-width:none}}
+
+/* GuruCorp skill chips V2 — labels are not editable inputs. */
+.skill-category-row .skill-keyword-editor{display:flex;flex:1 1 260px;flex-direction:column;align-items:stretch;gap:9px;min-width:0}
+.skill-category-row .skill-keyword-list{display:flex;flex-wrap:wrap;align-items:center;gap:7px;min-width:0}
+.skill-category-row .skill-keyword-tag{display:inline-flex;align-items:center;gap:7px;min-height:29px;max-width:100%;padding:3px 4px 3px 11px;border:1px solid #e4d4b9;border-radius:18px;background:#fff7e8;color:#4d3b22;font-size:12px;font-weight:650;line-height:1.3;box-shadow:0 1px 1px rgba(15,23,42,.03);white-space:normal}
+.skill-category-row .skill-keyword-label{display:inline;min-width:0;overflow-wrap:anywhere}
+.skill-category-row .skill-keyword-tag button.skill-keyword-delete{appearance:none;display:inline-flex;align-items:center;justify-content:center;flex:0 0 20px;width:20px;height:20px;padding:0;margin:0;border:0;border-radius:50%;background:#f3e3c8;color:#7a5829;box-shadow:none;line-height:1;cursor:pointer}
+.skill-category-row .skill-keyword-tag button.skill-keyword-delete:hover{background:#f4d1ce;color:#a12626}
+.skill-category-row .skill-keyword-empty{font-size:12px;color:#9aa3b5}
+.skill-category-row .skill-keyword-add{display:flex;align-items:center;flex:0 1 auto;align-self:flex-start;min-width:220px;width:min(100%,350px);max-width:100%;height:34px;border:1px dashed #ddc89f;border-radius:9px;background:#fff;overflow:hidden}
+.skill-category-row .skill-keyword-add input{appearance:none;display:block;flex:1;width:100%;min-width:0;height:100%;padding:0 10px;margin:0;border:0;border-radius:0;box-shadow:none;background:transparent;color:#273247;font-size:12px;outline:none}
+.skill-category-row .skill-keyword-add button.skill-keyword-add-button{display:inline-flex;align-items:center;justify-content:center;flex:0 0 34px;width:34px;height:100%;padding:0;margin:0;border:0;border-left:1px solid #f0e3ce;border-radius:0;background:#fff7e9;color:#b17821}
+.skill-category-row .skill-keyword-add button.skill-keyword-add-button:disabled{opacity:.4}
+.skill-category-row .skill-keyword-add:focus-within{border-color:#b77a20;box-shadow:0 0 0 3px rgba(183,122,32,.12)}
+@media(max-width:700px){.skill-category-row .skill-keyword-editor{width:100%}.skill-category-row .skill-keyword-add{width:100%;min-width:0}}

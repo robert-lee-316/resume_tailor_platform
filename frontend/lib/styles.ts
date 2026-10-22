@@ -32,7 +32,9 @@ export const STYLE_GROUPS: { label: string; keys: readonly StyleKey[] }[] = [
 ];
 export const FONT_CHOICES = ["Times New Roman", "Arial", "Calibri", "Aptos", "Georgia", "Verdana"];
 const basic = (size: number, bold = false, align: TextStyle["align"] = "left"): TextStyle => ({
-  font: "Times New Roman", size, bold, color: "#161616", align, enabled: false, changed: []
+  // Empty font means inherit the uploaded Word template font. Do not
+  // present a hard-coded Times New Roman choice as a user override.
+  font: "", size, bold, color: "#161616", align, enabled: false, changed: []
 });
 export const DEFAULT_STYLES: ResumeStyles = {
   name: basic(18, true, "center"), role: basic(12, false, "center"), personal: basic(10, false, "center"),
@@ -55,7 +57,11 @@ export function parseResumeStyles(value: unknown): ResumeStyles {
     const incoming = candidate[key] ?? (legacy ? candidate[legacy] : undefined);
     const raw = incoming && typeof incoming === "object" ? incoming as Record<string, unknown> : {};
     const baseline = DEFAULT_STYLES[key];
-    const font = FONT_CHOICES.includes(String(raw.font)) ? String(raw.font) : baseline.font;
+    // Normalize legacy unmodified defaults: older builds saved Times New
+    // Roman even though the user never actively selected a font.
+    const explicitlySelectedFont = Array.isArray(raw.changed) && raw.changed.includes("font");
+    const font = FONT_CHOICES.includes(String(raw.font)) && (explicitlySelectedFont || (raw.enabled === true && !Array.isArray(raw.changed)))
+      ? String(raw.font) : baseline.font;
     const size = typeof raw.size === "number" && Number.isFinite(raw.size) ? Math.max(7, Math.min(36, raw.size)) : baseline.size;
     const bold = typeof raw.bold === "boolean" ? raw.bold : baseline.bold;
     const color = typeof raw.color === "string" && /^#[0-9a-fA-F]{6}$/.test(raw.color) ? raw.color : baseline.color;
@@ -85,6 +91,15 @@ export function parseResumeStyles(value: unknown): ResumeStyles {
       ...(spaceAfter !== undefined ? {spaceAfter} : {}),
       ...(leftIndent !== undefined ? {leftIndent} : {})}];
   })) as ResumeStyles;
+  // Migrate stale browser styles: summary bold is controlled by **keyword**
+  // markup, not a paragraph-wide style override. Prevent historical defaults
+  // from silently turning an entire summary bold on Exact PDF export.
+  parsed.summary = {
+    ...parsed.summary,
+    bold: false,
+    changed: (parsed.summary.changed ?? []).filter(key => key !== "bold"),
+  };
+  if (!parsed.summary.changed.length) parsed.summary.enabled = false;
   return synchronizeHeadingStyles(parsed);
 }
 // One shared heading style controls all three sections, while the existing
@@ -120,7 +135,7 @@ export function restoreSharedHeadingStyle(styles: ResumeStyles): ResumeStyles {
 }
 
 export function cssTextStyle(s: TextStyle): CSSProperties {
-  return { fontFamily: `"${s.font}", serif`, fontSize: `${s.size}pt`, fontWeight: s.bold ? 700 : 400,
+  return { ...(s.font ? {fontFamily: `"${s.font}", serif`} : {}), fontSize: `${s.size}pt`, fontWeight: s.bold ? 700 : 400,
     color: s.color, textAlign: s.align,
     ...(s.lineSpacing !== undefined ? {lineHeight: s.lineSpacing} : {}),
     ...(s.spaceAfter !== undefined ? {marginBottom: `${s.spaceAfter}pt`} : {}),
