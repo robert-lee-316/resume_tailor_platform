@@ -109,6 +109,12 @@ def replace_fields(element, context, category: str = ""):
             return '' if value is None else str(value)
         original = node.text
         rendered = FIELD.sub(convert, original)
+        # Imported PDF text may contain layout-only line breaks inside a
+        # single bullet/summary/description. Word justification stretches
+        # manually broken lines edge-to-edge, sometimes spilling into margins.
+        # Make those passages one ordinary wrapping paragraph instead.
+        if category in ('summary', 'skills', 'experienceDescription', 'experienceBullets', 'education', 'body'):
+            rendered = re.sub(r'\s*[\r\n]+\s*', ' ', rendered)
         if rendered != original and (category == 'summary' or '**' in rendered or '\n' in rendered):
             apply_bold_markup(node, rendered, regular_default=(category == 'summary'))
         else:
@@ -133,7 +139,7 @@ LEGACY_STYLE = {
     'experienceDescription': 'body', 'experienceBullets': 'body',
 }
 SECTION_HEADINGS = {
-    'SUMMARY': 'summary', 'PROFESSIONAL SUMMARY': 'summary',
+    'SUMMARY': 'summaryHeading', 'PROFESSIONAL SUMMARY': 'summaryHeading',
     'SKILLS': 'skillsHeading', 'TECHNICAL SKILLS': 'skillsHeading',
     'SKILLS & EXPERTISE': 'skillsHeading',
     'EXPERIENCE': 'experienceHeading', 'WORK EXPERIENCE': 'experienceHeading',
@@ -180,7 +186,9 @@ def apply_paragraph_style(paragraph, category: str, styles: dict):
     if paragraph.tag != qn('w:p') or not isinstance(styles, dict):
         return
     style = styles.get(category)
-    if not isinstance(style, dict):
+    # Never let body styles leak into section headings. In particular, the
+    # default justified Skills body must not justify TECHNICAL SKILLS.
+    if not isinstance(style, dict) and not category.endswith('Heading'):
         style = styles.get(LEGACY_STYLE.get(category, ''))
     if not isinstance(style, dict):
         return
@@ -264,34 +272,55 @@ def apply_paragraph_style(paragraph, category: str, styles: dict):
             b = set_child(rpr, 'w:b')
             b.set(qn('w:val'), '1' if bold else '0')
 
-def keep_bullets_inside_page(paragraph, category: str, styles: dict):
-    """Normalize wrapping of long achievements in DOCX / exact PDF.
+def keep_bullets_inside_page(paragraph, category: str, styles: dict, source_text: str = "",
+                             printable_width_twips: int | None = None):
+    """Keep justified body paragraphs inside the printable Word page.
 
-    Word templates exported from Google Docs may use justified paragraphs and
-    tab stops at their page edge. The result is disproportionate spacing or
-    characters pushed into the margin. Keep a small right-side safety inset.
-    An explicit user alignment (including justify) is still authoritative.
+    Full justification is useful for multi-line body paragraphs, but not
+    for title/date rows containing a right-aligned tab: justify + tab can
+    push dates beyond the effective text boundary in LibreOffice. These
+    rows use a right-aligned tab with left-aligned paragraph text instead.
+    Normal body paragraphs remain justified and get a small safe right inset.
     """
-    if paragraph.tag != qn('w:p') or category != 'experienceBullets':
+    if paragraph.tag != qn('w:p'):
         return
-    override = styles.get('experienceBullets') if isinstance(styles, dict) else None
-    selected = set(override.get('changed', [])) if isinstance(override, dict) and override.get('enabled') else set()
+    if category not in ('summary', 'skills', 'experience',
+                        'experienceDescription', 'experienceBullets', 'education', 'body'):
+        return
     ppr = set_child(paragraph, 'w:pPr')
+    # Date rows must use one explicit right-aligned tab, not stretched spaces.
+    is_date_row = ('{{ exp.dates' in source_text or '{{ ed.dates' in source_text)
+    has_tab = any(node.tag == qn('w:tab') for node in paragraph.iter())
+    if is_date_row and has_tab:
+        jc = ppr.get_or_add_jc()
+        jc.set(qn('w:val'), 'left')
+        # Clamp right-aligned tab stops which some exported templates place
+        # beyond the available width. Leave a 0.10in inset from the right edge.
+        tabs = ppr.find(qn('w:tabs'))
+        if tabs is not None and printable_width_twips:
+            for tab in tabs:
+                if tab.get(qn('w:val')) != 'right':
+                    continue
+                try:
+                    pos = int(tab.get(qn('w:pos'), '0'))
+                except ValueError:
+                    continue
+                safe_pos = max(720, printable_width_twips - 144)
+                if pos > safe_pos:
+                    tab.set(qn('w:pos'), str(safe_pos))
+        return
+    # Keep a physical buffer inside the right page margin for justified text.
+    # Never erase a larger intentional inset set in the Word template.
     indentation = ppr.get_or_add_ind()
-    # 0.12in = 173 twips. Prevent long words from touching the page edge.
     existing = indentation.get(qn('w:right'))
     try:
         value = int(existing) if existing is not None else 0
     except ValueError:
         value = 0
-    indentation.set(qn('w:right'), str(max(173, value)))
-    # Avoid the large spaces sometimes caused by justified bullet paragraphs.
-    # Respect an explicit Justify choice in Style Settings.
-    if 'align' not in selected:
-        alignment = ppr.find(qn('w:jc'))
-        if alignment is not None and alignment.get(qn('w:val')) in ('both', 'distribute'):
-            alignment.set(qn('w:val'), 'left')
-
+    minimum = 216 if category == 'experienceBullets' else 144
+    indentation.set(qn('w:right'), str(max(minimum, value)))
+    # Do not force alignment of the last line. Word's 'both' justification
+    # automatically leaves the final line left-aligned when no hard break exists.
 
 def expand_paragraphs(elements, context):
     output = []
@@ -331,12 +360,30 @@ def expand_paragraphs(elements, context):
         if content == '{{ exp.description }}' and not context.get('exp', {}).get('description', '').strip():
             index += 1
             continue
+        # Legacy one-field Skills templates store every category in a single
+        # newline-separated string. Use one real paragraph per category so
+        # justified layout does not stretch manually broken lines.
+        if content == '{{ skills_text }}' and '\n' in str(context.get('skills_text') or ''):
+            for skill_line in str(context['skills_text']).splitlines():
+                if not skill_line.strip():
+                    continue
+                item_context = {**context, 'skills_text': skill_line.strip()}
+                new_line = copy.deepcopy(current)
+                replace_fields(new_line, item_context, 'skills')
+                styles = context.get('_styles', {})
+                apply_paragraph_style(new_line, 'skills', styles)
+                keep_bullets_inside_page(new_line, 'skills', styles, content,
+                                         context.get('_printable_width_twips'))
+                output.append(new_line)
+            index += 1
+            continue
         new = copy.deepcopy(current)
         category = which_style(content, context)
         replace_fields(new, context, category)
         styles = context.get('_styles', {})
         apply_paragraph_style(new, category, styles)
-        keep_bullets_inside_page(new, category, styles)
+        keep_bullets_inside_page(new, category, styles, content,
+                                 context.get('_printable_width_twips'))
         output.append(new)
         index += 1
     return output
@@ -470,7 +517,21 @@ def render_docx(template: Path, output: Path, context: dict):
             raise TemplateError('Repeating sections inside tables are not supported in v1')
     content = add_missing_description_placeholders(content, context)
     content = add_missing_linkedin_placeholder(content, context)
-    rendered = expand_paragraphs(content, context)
+    # Calculate actual printable width from the uploaded Word template.
+    # Do not assume every template is US Letter with 0.5in margins.
+    page_widths = [int(section.page_width.twips - section.left_margin.twips - section.right_margin.twips)
+                   for section in doc.sections if section.page_width and section.left_margin and section.right_margin]
+    render_context = {**context, '_printable_width_twips': min(page_widths) if page_widths else 9360}
+    rendered = expand_paragraphs(content, render_context)
+    # Prevent LibreOffice/Word from stretching lines created by Shift+Enter
+    # in third-party templates (including exports from Google Docs).
+    settings_el = doc.settings.element
+    compat = settings_el.find(qn('w:compat'))
+    if compat is None:
+        compat = OxmlElement('w:compat')
+        settings_el.append(compat)
+    if compat.find(qn('w:doNotExpandShiftReturn')) is None:
+        compat.append(OxmlElement('w:doNotExpandShiftReturn'))
     for item in children: body.remove(item)
     for item in rendered + section_properties: body.append(item)
     output.parent.mkdir(parents=True, exist_ok=True)

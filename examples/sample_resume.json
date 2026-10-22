@@ -37,7 +37,8 @@
     {
       "degree": "B.S. Computer Science",
       "institution": "State University",
-      "dates": "2014\u20132018"
+      "dates": "2014\u20132018",
+      "location": "Albany, NY"
     }
   ],
   "skill_categories": [
@@ -57,5 +58,6 @@
       "name": "Cloud & Databases",
       "skills_text": "AWS, PostgreSQL"
     }
-  ]
+  ],
+  "linkedin": "linkedin.com/in/alexmorgan"
 }

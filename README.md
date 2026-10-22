@@ -1,4 +1,4 @@
-# Folio — Word Template Resume Builder
+# GuruCorp — Word Template Resume Builder
 
 Full-stack resume builder (Next.js frontend + FastAPI document engine). Users edit their resume in the browser, upload their own **`.docx` template with supported placeholders**, view the *actual generated PDF*, and download both **Word** and **PDF** versions.
 
@@ -62,6 +62,31 @@ For an API on a non-default port, copy `frontend/.env.example` to `frontend/.env
 - **Local persistence**: resume fields saved in `localStorage`; selected Word template saved in IndexedDB. No accounts/database in this MVP.
 - **Backup**: export/import resume JSON (for moving work across browsers).
 - **Try it instantly**: bundled sample Word template and initial example data.
+
+## Work Experience editor update
+
+The Work Experience form now has:
+
+- **From** and **To** month/year pickers (native browser controls).
+- **I currently work here** checkbox, which disables To and exports the date range ending in `Present`.
+- **Achievements** with an **Add bullet (+)** button, one text input per bullet, and a remove button for each bullet.
+- Press **Enter** inside a bullet input to add a new bullet.
+- Empty achievements are excluded from generated DOCX/PDF files.
+- Existing resumes saved in localStorage and older JSON backups still load. For year-only legacy date ranges, the original value is preserved until you select new months (no month is guessed).
+
+The DOCX template syntax is **unchanged**: continue using `{{ exp.dates }}` and the `exp.bullets` loop.
+
+### Windows Git Bash
+
+For an existing checkout, replace `frontend/app/page.tsx`, `frontend/app/globals.css`, and `frontend/lib/resume.ts` with the updated files, then restart the Next.js dev server:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+If your backend is already running, it does not need to be reinstalled for this UI-only change.
 
 ## Data and placeholders
 
@@ -181,3 +206,23 @@ npm run build
 This is a **local MVP**, not yet a publicly deployable multi-user service. Uploaded Word files are not authenticated, generation runs synchronously, and data persists only in the local browser. For production, add user accounts and authorization, private object storage, server-side durable data storage, virus/malware scanning, quotas, isolated document workers with CPU/memory/time constraints, an async task queue, and safe temporary-file policies. Expose Next.js/worker services through HTTPS.
 
 The Next.js API proxy limits upload sizes and keeps backend host details server-side. FastAPI performs additional DOCX ZIP safety checks. These protections alone are **not** a replacement for isolating processing of untrusted Office documents.
+
+## Work Experience calendar update
+
+The **From** and **To** fields use native calendar pickers with day/month/year selection. The completed resume shows month/year dates (e.g., `Apr 2022 – Oct 2026`), preserving the existing DOCX template payload shape and layout. Dates previously saved in month-only format remain compatible and show day 1 in the calendar until changed.
+
+For existing local installations, copy `frontend/app/page.tsx`, `frontend/app/globals.css`, and `frontend/lib/resume.ts` from the patch ZIP into the matching project folders. Restart `npm run dev`. No additional dependencies or backend changes are required.
+
+---
+
+## October 2026 update: import previous resume, bold keywords, education dates
+
+See [FEATURE_UPDATE_NOTES.md](FEATURE_UPDATE_NOTES.md) for usage, compatibility details, validation and Windows installation instructions. New backend dependency: `pypdf>=5,<7`.
+
+## Skills & Expertise categories (latest update)
+
+The Skills section contains separate **category rows** with one input for the category name and individual skill boxes. Each row has a **+ Add skill** button, an **x** on each skill, and a category-delete button. A separate **+ Add category** button creates another row. Press **Enter** in a skill input to append a skill.
+
+The editor autosaves categorized skills and migrates older flat comma-separated skills from existing local saves, JSON backups, or imported resumes. Existing Word templates using `{{ skills_text }}` continue to work: generated output shows one category per line (`Languages: Python, TypeScript`). For custom Word templates that need each category as a separate paragraph, use the optional `skill_categories` loop documented in `SKILLS_CATEGORIES_UPDATE.md`.
+
+**This update changes both the frontend and the Python document renderer.** Replace the files in the patch, then restart **both** frontend and backend servers. No new pip or npm packages are needed.

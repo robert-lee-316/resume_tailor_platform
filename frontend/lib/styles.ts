@@ -36,13 +36,23 @@ const basic = (size: number, bold = false, align: TextStyle["align"] = "left"): 
   // present a hard-coded Times New Roman choice as a user override.
   font: "", size, bold, color: "#161616", align, enabled: false, changed: []
 });
+// By default, resume paragraphs use full justification. These are genuine
+// Word/PDF alignment defaults (not merely values shown in the form).
+// Name, role, contact details, and section headings remain independently styled.
+export const JUSTIFIED_BODY_KEYS: readonly StyleKey[] = [
+  "summary", "body", "skills", "experience", "experienceDescription",
+  "experienceBullets", "education",
+];
+const justifiedBody = (size: number): TextStyle => ({
+  ...basic(size, false, "justify"), enabled: true, changed: ["align"],
+});
 export const DEFAULT_STYLES: ResumeStyles = {
   name: basic(18, true, "center"), role: basic(12, false, "center"), personal: basic(10, false, "center"),
-  summary: basic(11), body: basic(10),
-  skillsHeading: basic(11.25, true, "center"), skills: basic(10, false, "left"),
-  experienceHeading: basic(11.25, true, "center"), experience: basic(10),
-  experienceDescription: basic(10), experienceBullets: basic(10),
-  educationHeading: basic(11.25, true, "center"), education: basic(10),
+  summary: justifiedBody(11), body: justifiedBody(10),
+  skillsHeading: basic(11.25, true, "center"), skills: justifiedBody(10),
+  experienceHeading: basic(11.25, true, "center"), experience: justifiedBody(10),
+  experienceDescription: justifiedBody(10), experienceBullets: justifiedBody(10),
+  educationHeading: basic(11.25, true, "center"), education: justifiedBody(10),
 };
 
 const MIGRATION_SOURCE: Partial<Record<StyleKey, StyleKey>> = {
@@ -65,7 +75,14 @@ export function parseResumeStyles(value: unknown): ResumeStyles {
     const size = typeof raw.size === "number" && Number.isFinite(raw.size) ? Math.max(7, Math.min(36, raw.size)) : baseline.size;
     const bold = typeof raw.bold === "boolean" ? raw.bold : baseline.bold;
     const color = typeof raw.color === "string" && /^#[0-9a-fA-F]{6}$/.test(raw.color) ? raw.color : baseline.color;
-    const align = ["left","center","right","justify"].includes(String(raw.align)) ? raw.align as TextStyle["align"] : baseline.align;
+    const incomingAlign = ["left","center","right","justify"].includes(String(raw.align)) ? raw.align as TextStyle["align"] : baseline.align;
+    // Migrate browser data from older builds, which persisted left-aligned
+    // defaults even though the user never selected Left. Preserve actual
+    // edits and explicit legacy overrides.
+    const bodyDefault = JUSTIFIED_BODY_KEYS.includes(key);
+    const explicitAlign = (Array.isArray(raw.changed) && raw.changed.includes("align"))
+      || (raw.enabled === true && !Array.isArray(raw.changed) && raw.align !== undefined);
+    const align = bodyDefault && !explicitAlign ? "justify" : incomingAlign;
     const lineSpacing = typeof raw.lineSpacing === "number" && Number.isFinite(raw.lineSpacing) && raw.lineSpacing >= 1 && raw.lineSpacing <= 2.5 ? raw.lineSpacing : undefined;
     const spaceAfter = typeof raw.spaceAfter === "number" && Number.isFinite(raw.spaceAfter) && raw.spaceAfter >= 0 && raw.spaceAfter <= 36 ? raw.spaceAfter : undefined;
     const leftIndent = typeof raw.leftIndent === "number" && Number.isFinite(raw.leftIndent) && raw.leftIndent >= 0 && raw.leftIndent <= 72 ? raw.leftIndent : undefined;
@@ -85,8 +102,13 @@ export function parseResumeStyles(value: unknown): ResumeStyles {
     const savedChanged = Array.isArray(raw.changed)
       ? raw.changed.filter((value): value is string => typeof value === "string" && fields.includes(value))
       : (incoming ? changed : []);
-    const enabled = typeof raw.enabled === "boolean" ? raw.enabled : savedChanged.length > 0;
-    return [key, {font,size,bold,color,align,enabled, changed: savedChanged,
+    // A migrated, untouched paragraph should now send its Justify alignment
+    // to the Word renderer. Do not silently override a user's explicit Left,
+    // Center or Right alignment.
+    const migrateBodyDefault = bodyDefault && !explicitAlign;
+    const finalChanged = migrateBodyDefault ? [...new Set([...savedChanged, "align"])] : savedChanged;
+    const enabled = migrateBodyDefault ? true : (typeof raw.enabled === "boolean" ? raw.enabled : savedChanged.length > 0);
+    return [key, {font,size,bold,color,align,enabled, changed: finalChanged,
       ...(lineSpacing !== undefined ? {lineSpacing} : {}),
       ...(spaceAfter !== undefined ? {spaceAfter} : {}),
       ...(leftIndent !== undefined ? {leftIndent} : {})}];
@@ -136,7 +158,8 @@ export function restoreSharedHeadingStyle(styles: ResumeStyles): ResumeStyles {
 
 export function cssTextStyle(s: TextStyle): CSSProperties {
   return { ...(s.font ? {fontFamily: `"${s.font}", serif`} : {}), fontSize: `${s.size}pt`, fontWeight: s.bold ? 700 : 400,
-    color: s.color, textAlign: s.align,
+    color: s.color, textAlign: s.align, textAlignLast: s.align === "justify" ? "auto" : undefined,
+    overflowWrap: "break-word",
     ...(s.lineSpacing !== undefined ? {lineHeight: s.lineSpacing} : {}),
     ...(s.spaceAfter !== undefined ? {marginBottom: `${s.spaceAfter}pt`} : {}),
     ...(s.leftIndent !== undefined ? {paddingLeft: `${s.leftIndent}pt`} : {}),

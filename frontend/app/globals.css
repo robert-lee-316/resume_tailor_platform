@@ -132,7 +132,6 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,[role=button]:fo
 .achievement-add:disabled{opacity:.5;cursor:not-allowed}
 .achievement-list{display:flex;flex-direction:column;gap:9px}
 .achievement-row{display:flex;align-items:center;gap:9px;min-width:0}
-.achievement-dot{color:#e7b25d;font-size:19px;line-height:1;flex:0 0 12px;text-align:center}
 .achievement-row input{background:#fff;border-radius:9px;border:1px solid #e3e7ee;font-size:12px;line-height:1.5;color:#253046;padding:11px 12px;outline:0;min-width:0;flex:1;transition:border-color .17s,box-shadow .17s}
 .achievement-row input:hover{border-color:#bfc5d2}
 .achievement-row input:focus{border-color:#ecc079;box-shadow:0 0 0 3px rgba(183,122,32,.09)}
@@ -145,19 +144,12 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,[role=button]:fo
 .achievement-drag-handle{width:24px;height:34px;display:grid;place-items:center;flex:0 0 24px;border:0;border-radius:6px;background:transparent;color:#98a0b3;cursor:grab;touch-action:none}
 .achievement-drag-handle:active{cursor:grabbing}
 .achievement-drag-handle:hover{background:#fbf5eb;color:#d9a450}
-.achievement-drag-handle:focus-visible,.achievement-order-button:focus-visible{outline:2px solid #e9b766;outline-offset:2px}
-.achievement-order-controls{display:flex;flex-direction:column;gap:2px;flex:0 0 25px}
-.achievement-order-button{display:grid;place-items:center;width:25px;height:20px;padding:0;border:1px solid #e4e5ef;border-radius:5px;background:#fff;color:#c09652;cursor:pointer}
-.achievement-order-button:not(:disabled):hover{background:#fdf7ee;border-color:#f4dcb4}
-.achievement-order-button:disabled{opacity:.3;cursor:not-allowed}
+.achievement-drag-handle:focus-visible{outline:2px solid #e9b766;outline-offset:2px}
 .achievement-row .icon-button{flex:0 0 28px;width:28px;height:30px}
 @media(max-width:440px){
   .achievement-row{gap:3px}
-  .achievement-dot{flex-basis:9px;font-size:15px}
   .achievement-row input{padding:9px 7px;font-size:11px}
   .achievement-drag-handle{width:20px;flex-basis:20px}
-  .achievement-order-controls{flex-basis:24px}
-  .achievement-order-button{width:24px}
 }
 
 
@@ -315,7 +307,6 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,[role=button]:fo
 
 .summary-format-tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .summary-format-tools .rich-bold-button:disabled{opacity:.35;cursor:not-allowed}
-.skill-category-marker{display:inline-flex;align-items:center;justify-content:center;height:43px;min-width:10px;font-size:22px;font-weight:800;color:#8d6b34}
 
 /* Independent resume formatting controls */
 .style-category-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-bottom:16px}
@@ -476,16 +467,15 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,[role=button]:fo
 .instant-resume,.instant-resume *{box-sizing:border-box}
 .instant-resume li,.instant-resume p,.instant-resume .instant-text{overflow-wrap:break-word;max-width:100%}
 
-/* Reorderable Skills & Expertise categories: handle-only drag plus accessible buttons. */
+/* Reorderable Skills & Expertise categories: drag handle only. */
 .skill-category-reorder{display:flex;flex:0 0 28px;flex-direction:column;gap:3px;align-items:center}
-.skill-category-drag-handle,.skill-category-move{display:grid;place-items:center;width:27px;height:26px;padding:0;border:1px solid transparent;border-radius:6px;background:transparent;color:#777f8e;cursor:pointer}
+.skill-category-drag-handle{display:grid;place-items:center;width:27px;height:26px;padding:0;border:1px solid transparent;border-radius:6px;background:transparent;color:#777f8e;cursor:pointer}
 .skill-category-drag-handle{cursor:grab;color:#ae7a2c;height:30px}
 .skill-category-drag-handle:active{cursor:grabbing}
-.skill-category-drag-handle:hover,.skill-category-move:hover:not(:disabled){background:#fdf5e8;border-color:#e9cf9f;color:#aa7424}
-.skill-category-drag-handle:focus-visible,.skill-category-move:focus-visible{outline:2px solid #b77a20;outline-offset:2px}
-.skill-category-move:disabled{opacity:.27;cursor:not-allowed}
+.skill-category-drag-handle:hover{background:#fdf5e8;border-color:#e9cf9f;color:#aa7424}
+.skill-category-drag-handle:focus-visible{outline:2px solid #b77a20;outline-offset:2px}
 .skill-category-row.skill-category-drop-target{border-color:#b77a20;background:#fff9ee;box-shadow:0 0 0 2px rgba(183,122,32,.16)}
-@media(max-width:700px){.skill-category-reorder{gap:2px}.skill-category-move,.skill-category-drag-handle{width:26px;height:26px}}
+@media(max-width:700px){.skill-category-reorder{gap:2px}.skill-category-drag-handle{width:26px;height:26px}}
 
 /* Keyword tags: one compact add field replaces individual skill input boxes. */
 .skill-keyword-editor{align-items:center;gap:7px;min-height:43px}
@@ -518,3 +508,326 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,[role=button]:fo
 .skill-category-row .skill-keyword-add button.skill-keyword-add-button:disabled{opacity:.4}
 .skill-category-row .skill-keyword-add:focus-within{border-color:#b77a20;box-shadow:0 0 0 3px rgba(183,122,32,.12)}
 @media(max-width:700px){.skill-category-row .skill-keyword-editor{width:100%}.skill-category-row .skill-keyword-add{width:100%;min-width:0}}
+
+/* Skills rows: consistent vertical baseline for grip, name, colon and tags.
+   Keep the multi-line tag editor fluid while the first chip aligns with the
+   category field. No move-up/move-down buttons are reintroduced. */
+.skill-category-row{display:grid;grid-template-columns:28px minmax(0,1fr) 30px;align-items:start;column-gap:10px;row-gap:8px}
+.skill-category-row .skill-category-reorder{display:flex;justify-content:center;align-items:flex-start;width:28px;height:36px}
+.skill-category-row .skill-category-drag-handle{width:28px;height:36px;flex:0 0 36px;display:grid;place-items:center}
+.skill-category-row .skill-category-fields{display:grid;grid-template-columns:minmax(118px,145px) 9px minmax(0,1fr);align-items:start;column-gap:8px;row-gap:0;width:100%;min-width:0}
+.skill-category-row .skill-category-name{width:auto;min-width:0;flex:none;margin:0}
+.skill-category-row .skill-category-name input{height:36px;width:100%;box-sizing:border-box}
+.skill-category-row .skill-category-colon{height:36px;line-height:36px;align-self:start}
+.skill-category-row .skill-keyword-editor{min-width:0;min-height:36px;gap:8px}
+.skill-category-row .skill-keyword-list{min-height:36px;align-items:center;align-content:start;row-gap:7px}
+.skill-category-row .skill-keyword-tag{min-height:30px}
+.skill-category-row .skill-category-delete{height:36px;width:30px;align-self:start}
+@media(max-width:680px){
+ .skill-category-row{grid-template-columns:28px minmax(0,1fr) 30px}
+ .skill-category-row .skill-category-fields{grid-template-columns:minmax(0,1fr) 9px;row-gap:9px}
+ .skill-category-row .skill-keyword-editor{grid-column:1/-1;width:100%}
+ .skill-category-row .skill-category-colon{grid-column:2;grid-row:1}
+ .skill-category-row .skill-category-name{grid-column:1;grid-row:1}
+}
+
+/* Compact neutral Skills editor.  This must not influence the resume's
+   default Justify alignment: form layout and document typography are separate. */
+.skill-category-list{align-items:stretch}
+.skill-category-row{
+  display:grid;grid-template-columns:24px minmax(0,1fr) 26px;
+  gap:8px;align-items:start;align-content:start;grid-auto-rows:min-content;
+  height:auto;min-height:0;max-height:none;padding:10px 12px;
+  border:1px solid #e4e7ec;border-radius:10px;background:#fff;
+}
+.skill-category-row .skill-category-reorder{width:24px;height:34px;min-height:0;align-self:start}
+.skill-category-row .skill-category-drag-handle{
+  height:34px;width:24px;min-height:0;flex:0 0 auto;
+  border:0;outline:0;box-shadow:none;border-radius:6px;
+  background:transparent;color:#737b88;
+}
+.skill-category-row .skill-category-drag-handle:hover{background:#f3f4f6;border-color:transparent;color:#5e6673}
+.skill-category-row .skill-category-drag-handle:focus-visible{outline:2px solid #808895;outline-offset:1px}
+.skill-category-row .skill-category-fields{
+  display:grid;grid-template-columns:minmax(106px,145px) 7px minmax(0,1fr);
+  gap:7px;align-content:start;align-items:start;grid-auto-rows:min-content;
+  min-width:0;width:100%;height:auto;min-height:0;
+}
+.skill-category-row .skill-category-name,.skill-category-row .skill-category-colon{align-self:start;margin:0}
+.skill-category-row .skill-category-name input{height:34px}
+.skill-category-row .skill-category-colon{height:34px;line-height:34px}
+.skill-category-row .skill-keyword-editor{
+  display:flex;flex-direction:column;flex:0 1 auto;
+  gap:7px;align-items:stretch;align-self:start;
+  height:auto;min-height:0;max-height:none;min-width:0;
+}
+.skill-category-row .skill-keyword-list{display:flex;flex-wrap:wrap;gap:6px;align-content:start;align-items:center;min-height:34px}
+.skill-category-row .skill-keyword-add{align-self:flex-start;margin:0;min-width:0;width:min(100%,340px);max-width:100%}
+.skill-category-row .skill-category-delete{height:34px;width:26px;min-width:26px;align-self:start;border:0}
+/* Justified text must wrap normally; preserved hard line breaks can cause
+   unnatural interword stretching. Exact DOCX render normalizes the same input. */
+.instant-resume .instant-text,.instant-resume .instant-company-description{white-space:normal}
+.instant-resume .instant-skills-plain p,.instant-resume .instant-skills li,
+.instant-resume .instant-experience li,.instant-resume .instant-company-description,
+.instant-resume .instant-education{min-width:0;max-width:100%;overflow-wrap:break-word;word-break:normal;text-align-last:auto}
+@media(max-width:720px){
+  .skill-category-row .skill-category-fields{grid-template-columns:minmax(0,1fr) 7px;row-gap:6px}
+   .skill-category-row .skill-category-name{grid-column:1;grid-row:1}
+  .skill-category-row .skill-category-colon{grid-column:2;grid-row:1}
+  .skill-category-row .skill-keyword-editor{grid-column:1/-1;grid-row:2}
+}
+/* GuruCorp editor isolation: Justify is a document property, not an editor layout.
+   Do not style these form controls from the resume's TextStyle.align values. */
+.editor-panel,
+.editor-panel .editor-content,
+.editor-panel .skill-category-list,
+.editor-panel .skill-category-row,
+.editor-panel .skill-category-fields,
+.editor-panel .skill-keyword-editor,
+.editor-panel .skill-keyword-list,
+.editor-panel .skill-keyword-tag,
+.editor-panel .skill-keyword-label,
+.editor-panel .skill-keyword-add {
+  text-align: left;
+  text-align-last: auto;
+  word-spacing: normal;
+  letter-spacing: normal;
+}
+.editor-panel .skill-category-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+  container-type: inline-size;
+}
+.editor-panel .skill-category-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0,1fr) 28px;
+  align-items: start;
+  align-content: start;
+  grid-auto-rows: min-content;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  padding: 12px;
+  border: 1px solid #e3e7ed;
+  background: #fff;
+  border-radius: 10px;
+}
+.editor-panel .skill-category-row .skill-category-reorder {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  width: 24px;
+  height: 36px;
+}
+.editor-panel .skill-category-row .skill-category-drag-handle {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 36px;
+  border: 0;
+  box-shadow: none;
+  border-radius: 5px;
+  color: #687387;
+  background: transparent;
+}
+.editor-panel .skill-category-row .skill-category-drag-handle:hover { background: #f3f5f8; }
+.editor-panel .skill-category-row .skill-category-fields {
+  display: grid;
+  grid-template-columns: minmax(95px,140px) 8px minmax(0,1fr);
+  align-items: start;
+  align-content: start;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  grid-auto-rows: min-content;
+}
+.editor-panel .skill-category-row .skill-category-colon {
+  height: 36px;
+  line-height: 36px;
+  align-self: start;
+}
+.editor-panel .skill-category-row .skill-category-name {
+  width: 100%;
+  min-width: 0;
+  flex: initial;
+  align-self: start;
+  margin: 0;
+}
+.editor-panel .skill-category-row .skill-category-name input {
+  width: 100%;
+  height: 36px;
+  min-width: 0;
+}
+/* Critical regression fix: align-self:start caused grid's keyword editor to
+   shrink-to-fit a min-content column. Force it to fill its allocated track. */
+.editor-panel .skill-category-row .skill-keyword-editor {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  min-height: 0;
+  max-height: none;
+  flex: none;
+  justify-self: stretch;
+  align-self: stretch;
+  align-items: stretch;
+  gap: 8px;
+}
+.editor-panel .skill-category-row .skill-keyword-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  align-content: start;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+}
+.editor-panel .skill-category-row .skill-keyword-tag {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  width: auto;
+  max-width: 100%;
+  min-height: 30px;
+  padding: 3px 4px 3px 10px;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
+  border: 1px solid #e1e4e9;
+  border-radius: 999px;
+  background: #f7f8fa;
+  color: #344054;
+  box-shadow: none;
+  line-height: 1.3;
+}
+.editor-panel .skill-category-row .skill-keyword-label {
+  display: inline-block;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+.editor-panel .skill-category-row .skill-keyword-tag button.skill-keyword-delete {
+  flex-shrink: 0;
+  background: #e8ebef;
+  color: #667085;
+}
+.editor-panel .skill-category-row .skill-keyword-add {
+  width: min(100%, 310px);
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  align-self: flex-start;
+  border-color: #d9dee6;
+  background: white;
+}
+.editor-panel .skill-category-row .skill-keyword-add:focus-within {
+  border-color: #98a2b3;
+  box-shadow: 0 0 0 2px rgba(152,162,179,.12);
+}
+.editor-panel .skill-category-row .skill-category-delete {
+  width: 28px;
+  height: 36px;
+  align-self: start;
+  border: 0;
+  background: transparent;
+}
+/* Narrow editor panel: put the chips below the category label instead of
+   squeezing them into single-character columns. Container queries track the
+   editor's width, not the browser viewport. */
+@container (max-width: 440px) {
+  .editor-panel .skill-category-row .skill-category-fields {
+    grid-template-columns: minmax(0,1fr) 8px;
+    row-gap: 7px;
+  }
+  .editor-panel .skill-category-row .skill-category-name { grid-column: 1; grid-row: 1; }
+  .editor-panel .skill-category-row .skill-category-colon { grid-column: 2; grid-row: 1; }
+  .editor-panel .skill-category-row .skill-keyword-editor {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: 100%;
+  }
+}
+
+/* GuruCorp: shared, stable typography form controls.
+   ONLY editor controls are affected; resume body justification in the
+   Instant/Exact PDF views is intentionally untouched. */
+.editor-panel .style-typography-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 14px;
+  row-gap: 16px;
+  margin: 0;
+  width: 100%;
+  min-width: 0;
+  align-items: start;
+}
+.editor-panel .style-typography-grid > .field {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 7px;
+  min-width: 0;
+  width: 100%;
+  margin: 0;
+  text-align: left;
+}
+.editor-panel .style-typography-grid .field-label {
+  display: block;
+  font-size: 11px;
+  line-height: 1.4;
+  font-weight: 750;
+  color: #3d465e;
+}
+.editor-panel .style-typography-grid :is(select, input[type="number"], input[type="color"]) {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  height: 42px;
+  min-height: 42px;
+  box-sizing: border-box;
+  border: 1px solid #dfe3eb;
+  border-radius: 8px;
+  background-color: #fff;
+  color: #28344b;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: normal;
+  text-align: left;
+  text-align-last: auto;
+  letter-spacing: normal;
+  word-spacing: normal;
+  box-shadow: none;
+  margin: 0;
+}
+.editor-panel .style-typography-grid :is(select, input[type="number"]) {
+  padding: 8px 11px;
+}
+.editor-panel .style-typography-grid input[type="color"] {
+  padding: 4px 6px;
+  cursor: pointer;
+}
+.editor-panel .style-typography-grid :is(select, input):focus-visible {
+  outline: 2px solid #9aa5b8;
+  outline-offset: 1px;
+  border-color: #9aa5b8;
+}
+.editor-panel .heading-style-card,
+.editor-panel .style-property-box { min-width: 0; }
+@media (max-width: 540px) {
+  .editor-panel .style-typography-grid { grid-template-columns: minmax(0, 1fr); }
+}
