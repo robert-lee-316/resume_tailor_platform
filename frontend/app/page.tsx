@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import type { ChangeEvent, DragEvent, KeyboardEvent, ReactNode, SyntheticEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { boldSelectedText, formatEducationDates, formatExperienceDates, initialResume, formatSkillCategories, parseResumeData, reorderBullets, safeFilename, sections, toDatePickerValue, toRenderPayload } from "@/lib/resume";
+import { boldSelectedText, formatEducationDates, formatExperienceDates, initialResume, formatSkillCategories, parseResumeData, reorderBullets, reorderSkillCategories, safeFilename, sections, toDatePickerValue, toRenderPayload } from "@/lib/resume";
 import type { Education, Experience, ResumeData, Section, SkillCategory } from "@/lib/resume";
 import { addTemplateToLibrary, loadTemplateLibrary, removeLibraryTemplate, selectLibraryTemplate } from "@/lib/template-store";
 import type { SavedTemplate, TemplateLibrary } from "@/lib/template-store";
@@ -20,6 +20,7 @@ import { makeSummaryHistory, recordSummaryEdit, undoSummaryEdit, redoSummaryEdit
 import type { SummarySnapshot } from "@/lib/summary-history";
 import { cssTextStyle, DEFAULT_STYLES, FONT_CHOICES, parseResumeStyles, STYLE_GROUPS, STYLE_LABELS, SECTION_HEADING_KEYS, updateSharedHeadingStyle, restoreSharedHeadingStyle } from "@/lib/styles";
 import type { ResumeStyles, StyleKey, TextStyle } from "@/lib/styles";
+import AchievementRichInput from "./achievement-rich-input";
 
 const RESUME_STORAGE = "folio-resume-v1";
 const MAX_TEMPLATE_BYTES = 5 * 1024 * 1024;
@@ -146,6 +147,9 @@ export default function HomePage() {
   // Source and destination for native drag/drop; up/down buttons also work with a keyboard.
   const draggedAchievement = useRef<{ experienceId: string; index: number } | null>(null);
   const [achievementDropTarget, setAchievementDropTarget] = useState<{ experienceId: string; index: number } | null>(null);
+  // Drag by the handle only, so users can still select and edit category/skill text.
+  const draggedSkillCategory = useRef<string | null>(null);
+  const [skillCategoryDropTarget, setSkillCategoryDropTarget] = useState<string | null>(null);
 
   const [section, setSection] = useState<Section | "styles">("personal");
   const [styles, setStyles] = useState<ResumeStyles>(DEFAULT_STYLES);
@@ -188,7 +192,7 @@ export default function HomePage() {
   const summaryRef = useRef<HTMLTextAreaElement | null>(null);
   const summaryHistory = useRef(makeSummaryHistory(initialResume.summary));
   const summarySelection = useRef({ start: 0, end: 0 });
-  const achievementRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const achievementRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [importingPrevious, setImportingPrevious] = useState(false);
   const [importPreviousError, setImportPreviousError] = useState("");
   const [importCandidate, setImportCandidate] = useState<PreviousResumeImport | null>(null);
@@ -341,6 +345,39 @@ export default function HomePage() {
     category.id === id ? { ...category, name } : category,
   ));
   const removeSkillCategory = (id: string) => setSkillCategories(current => current.filter(category => category.id !== id));
+  const moveSkillCategory = (id: string, targetIndex: number) => setSkillCategories(current => {
+    const fromIndex = current.findIndex(category => category.id === id);
+    return reorderSkillCategories(current, fromIndex, targetIndex);
+  });
+  const handleSkillCategoryDragStart = (event: DragEvent<HTMLButtonElement>, id: string) => {
+    draggedSkillCategory.current = id;
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", id);
+  };
+  const handleSkillCategoryDragOver = (event: DragEvent<HTMLDivElement>, id: string) => {
+    if (!draggedSkillCategory.current || draggedSkillCategory.current === id) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setSkillCategoryDropTarget(id);
+  };
+  const handleSkillCategoryDrop = (event: DragEvent<HTMLDivElement>, targetId: string) => {
+    const sourceId = draggedSkillCategory.current;
+    if (!sourceId) return;
+    event.preventDefault();
+    if (sourceId !== targetId) {
+      setSkillCategories(current => reorderSkillCategories(
+        current,
+        current.findIndex(category => category.id === sourceId),
+        current.findIndex(category => category.id === targetId),
+      ));
+    }
+    draggedSkillCategory.current = null;
+    setSkillCategoryDropTarget(null);
+  };
+  const handleSkillCategoryDragEnd = () => {
+    draggedSkillCategory.current = null;
+    setSkillCategoryDropTarget(null);
+  };
   const addSkill = (id: string) => setSkillCategories(current => current.map(category =>
     category.id === id && category.skills.length < 40 ? { ...category, skills: [...category.skills, ""] } : category,
   ));
@@ -377,14 +414,18 @@ export default function HomePage() {
   };
 
   const toggleAchievementBold = (id: string, index: number) => {
-    const input = achievementRefs.current[`${id}:${index}`];
-    const exp = resume.experiences.find(item => item.id === id);
-    const text = exp?.bullets[index]?.text;
-    if (!input || text === undefined) return;
-    const wrapped = boldSelectedText(text, input.selectionStart ?? 0, input.selectionEnd ?? 0);
-    if (!wrapped) { notify("Select the words you want to make bold, then click B."); input.focus(); return; }
-    updateAchievement(id, index, wrapped.text);
-    requestAnimationFrame(() => { input.focus(); input.setSelectionRange(wrapped.start, wrapped.end); });
+    const editor = achievementRefs.current[`${id}:${index}`];
+    if (!editor) return;
+    editor.focus();
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || !editor.contains(selection.anchorNode)) {
+      notify("Select words in the achievement field, then click Bold or press Ctrl+B.");
+      return;
+    }
+    // Use the browser editing command so the selection stays visually bold
+    // and Ctrl+Z can undo it in the editable field.
+    document.execCommand("bold");
+    editor.dispatchEvent(new Event("input", { bubbles: true }));
   };
 
   const restoreSummarySelection = (snapshot: SummarySnapshot) => {
@@ -1099,6 +1140,7 @@ export default function HomePage() {
                       onChange={value => updateExperience(exp.id, { description: value })}
                       help="Appears as a normal paragraph after the company name and before achievement bullets. The Word template must include {{ exp.description }}." />
                     <div className="achievement-editor">
+                      <p className="field-help">Paste from ChatGPT to keep <strong>bold keywords directly in the input</strong>. Ctrl+B formats a selection; Ctrl+Z undoes it.</p>
                       <div className="achievement-heading">
                         <span className="field-label">Achievements</span>
                         <button type="button" className="achievement-add" disabled={exp.bullets.length >= 100}
@@ -1119,15 +1161,12 @@ export default function HomePage() {
                             onDragEnd={handleAchievementDragEnd}
                           ><GripVertical size={17} /></button>
                           <span className="achievement-dot" aria-hidden="true">•</span>
-                          <input type="text" value={bullet.text}
-                            ref={node => { achievementRefs.current[`${exp.id}:${bulletIndex}`] = node; }}
-                            aria-label={`Achievement ${bulletIndex + 1} for position ${index + 1}`}
+                          <AchievementRichInput value={bullet.text}
+                            inputRef={node => { achievementRefs.current[`${exp.id}:${bulletIndex}`] = node; }}
+                            label={`Achievement ${bulletIndex + 1} for position ${index + 1}`}
                             placeholder={bulletIndex === 0 ? "e.g. Reduced API response time by 35%" : "Enter another achievement"}
-                            onChange={event => updateAchievement(exp.id, bulletIndex, event.target.value)}
-                            onKeyDown={event => {
-                              if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "b") { event.preventDefault(); toggleAchievementBold(exp.id, bulletIndex); }
-                              else if (event.key === "Enter") { event.preventDefault(); addAchievement(exp.id); }
-                            }} />
+                            onChange={value => updateAchievement(exp.id, bulletIndex, value)}
+                            onEnter={() => addAchievement(exp.id)} />
                           <button type="button" className="achievement-bold-button" aria-label={`Bold selected words in achievement ${bulletIndex + 1}`}
                             title="Bold highlighted keywords (Ctrl+B)" onMouseDown={event => event.preventDefault()}
                             onClick={() => toggleAchievementBold(exp.id, bulletIndex)}><Bold size={15} /></button>
@@ -1189,11 +1228,32 @@ export default function HomePage() {
             </div>}
 
             {section === "skills" && <div className="editor-content">
-              <SectionIntro number="05" eyebrow="YOUR TOOLKIT" title="Skills & expertise" subtitle="Organize your expertise by category. Add as many individual skills as you need." icon={<Activity size={21} />} />
+              <SectionIntro number="05" eyebrow="YOUR TOOLKIT" title="Skills & expertise" subtitle="Organize your expertise by category. Drag categories into order or use the arrow buttons; the resume follows the same order." icon={<Activity size={21} />} />
               <div className="skill-category-list">
-                {resume.skill_categories.map((category, categoryIndex) => <div className="skill-category-row" key={category.id}>
+                {resume.skill_categories.map((category, categoryIndex) => <div
+                  className={`skill-category-row${skillCategoryDropTarget === category.id ? " skill-category-drop-target" : ""}`}
+                  key={category.id}
+                  onDragOver={event => handleSkillCategoryDragOver(event, category.id)}
+                  onDrop={event => handleSkillCategoryDrop(event, category.id)}
+                >
+                  <div className="skill-category-reorder">
+                    <button type="button" className="skill-category-drag-handle" draggable
+                      aria-label={`Drag to reorder category ${category.name || categoryIndex + 1}`}
+                      title="Drag to change category order"
+                      onDragStart={event => handleSkillCategoryDragStart(event, category.id)}
+                      onDragEnd={handleSkillCategoryDragEnd}>
+                      <GripVertical size={18} />
+                    </button>
+                    <button type="button" className="skill-category-move" disabled={categoryIndex === 0}
+                      aria-label={`Move ${category.name || `category ${categoryIndex + 1}`} up`}
+                      title="Move category up"
+                      onClick={() => moveSkillCategory(category.id, categoryIndex - 1)}><ArrowUp size={15} /></button>
+                    <button type="button" className="skill-category-move" disabled={categoryIndex === resume.skill_categories.length - 1}
+                      aria-label={`Move ${category.name || `category ${categoryIndex + 1}`} down`}
+                      title="Move category down"
+                      onClick={() => moveSkillCategory(category.id, categoryIndex + 1)}><ArrowDown size={15} /></button>
+                  </div>
                   <div className="skill-category-fields">
-                    <span className="skill-category-marker" aria-hidden="true">•</span>
                     <label className="skill-category-name">
                       <span className="sr-only">Category {categoryIndex + 1}</span>
                       <input value={category.name} placeholder="Category (e.g. Backend)" maxLength={120}
@@ -1227,13 +1287,13 @@ export default function HomePage() {
               <button type="button" className="add-card skill-category-add" disabled={resume.skill_categories.length >= 30}
                 onClick={addSkillCategory}><Plus size={18} /> Add category</button>
               <div className="skill-preview">
-                <span className="field-label">RESUME OUTPUT PREVIEW</span>
+                <span className="field-label">RESUME OUTPUT PREVIEW — CATEGORY ORDER</span>
                 {resume.skill_categories.filter(category => category.skills.some(skill => skill.trim())).map(category => <div className="skill-preview-category" key={category.id}>
                   <span className="skill-preview-bullet" aria-hidden="true">•</span>
                   <strong>{category.name.trim() || "Skills"}:</strong>
                   <span>{category.skills.filter(skill => skill.trim()).join(", ")}</span>
                 </div>)}
-                <p className="field-help">Categories and skills are saved automatically. The existing Word template uses them through the {'{{ skills_text }}'} placeholder.</p>
+                <p className="field-help">Category order is saved automatically and appears in Instant Preview, Exact PDF, and Word downloads. Supports both {'{{ skills_text }}'} and skill-category loops.</p>
               </div>
               <div className="form-footer"><button className="button subtle-button" onClick={() => switchSection("education")}><ArrowLeft size={16} /> Back</button><button className="button primary-button" onClick={() => switchSection("template")}>Choose template <ArrowRight size={17} /></button></div>
             </div>}
@@ -1253,14 +1313,21 @@ export default function HomePage() {
                 <label className="style-checkbox" style={{marginBottom: 14}}>
                   <input type="checkbox" checked={!styles[selectedStyle].enabled} onChange={e => setStyles(current => ({
                     ...current, [selectedStyle]: { ...current[selectedStyle], enabled: !e.target.checked,
-                      changed: e.target.checked ? [] : (current[selectedStyle].changed ?? []) }
+                      changed: e.target.checked ? [] : ((current[selectedStyle].changed?.length ?? 0) > 0 ? current[selectedStyle].changed : ["font", "size", "align", "color", "bold"]) }
                   }))} />
                   Keep formatting from the uploaded Word template
                 </label>
                 <p className="field-help" style={{marginTop: 0, marginBottom: 12}}>
                   {styles[selectedStyle].enabled
-                    ? "Custom formatting is applied to Word and Exact PDF. Only explicitly edited properties are overridden."
+                    ? "Custom formatting is sent to Word and Exact PDF. Allow a few seconds for PDF regeneration; the original template may use the same font."
                     : "Template formatting is preserved in Exact PDF. Editing any field below enables a custom override for that property."}
+                </p>
+                <p className="field-help" role="status" style={{marginTop: 0, marginBottom: 12}}>
+                  {styles[selectedStyle].enabled
+                    ? (styles[selectedStyle].changed?.length ?? 0) > 0
+                      ? `Word/PDF override active: ${styles[selectedStyle].changed?.join(", ")}.`
+                      : "No properties have been applied to the Word document yet. Edit a value below."
+                    : "The Word template determines this section's formatting. Change any value below to override it."}
                 </p>
                 <div className="style-field-grid">
                   <label className="field"><span className="field-label">Font family</span><select value={styles[selectedStyle].font} onChange={e => updateStyle(selectedStyle, "font", e.target.value)}>{FONT_CHOICES.map(font => <option key={font}>{font}</option>)}</select></label>

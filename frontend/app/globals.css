@@ -464,3 +464,25 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,[role=button]:fo
 @media (max-width: 540px) { .heading-style-controls { grid-template-columns: 1fr; } }
 
 .heading-style-sample-line + .heading-style-sample-line { margin-top: 10px; }
+
+/* Rich achievement bullets: bold remains visible IN the editable field. */
+.achievement-rich-input{flex:1;min-width:0;min-height:40px;box-sizing:border-box;display:block;white-space:pre-wrap;overflow-wrap:anywhere;word-break:normal;background:#fff;border-radius:9px;border:1px solid #e3e7ee;font-size:12px;line-height:1.5;color:#253046;padding:10px 12px;outline:0;}
+.achievement-rich-input:focus{border-color:#ecc079;box-shadow:0 0 0 3px rgba(183,122,32,.09)}
+.achievement-rich-input:empty::before{content:attr(data-placeholder);color:#afb6c3;pointer-events:none}
+.achievement-rich-input strong,.achievement-rich-input b{font-weight:800;color:#1a263a}
+.achievement-rich-input:focus-visible{outline:0}
+@media(max-width:820px){.achievement-rich-input{padding:9px 7px;font-size:11px}}
+/* Keep user-visible document draft within page edges even with long tokens. */
+.instant-resume,.instant-resume *{box-sizing:border-box}
+.instant-resume li,.instant-resume p,.instant-resume .instant-text{overflow-wrap:break-word;max-width:100%}
+
+/* Reorderable Skills & Expertise categories: handle-only drag plus accessible buttons. */
+.skill-category-reorder{display:flex;flex:0 0 28px;flex-direction:column;gap:3px;align-items:center}
+.skill-category-drag-handle,.skill-category-move{display:grid;place-items:center;width:27px;height:26px;padding:0;border:1px solid transparent;border-radius:6px;background:transparent;color:#777f8e;cursor:pointer}
+.skill-category-drag-handle{cursor:grab;color:#ae7a2c;height:30px}
+.skill-category-drag-handle:active{cursor:grabbing}
+.skill-category-drag-handle:hover,.skill-category-move:hover:not(:disabled){background:#fdf5e8;border-color:#e9cf9f;color:#aa7424}
+.skill-category-drag-handle:focus-visible,.skill-category-move:focus-visible{outline:2px solid #b77a20;outline-offset:2px}
+.skill-category-move:disabled{opacity:.27;cursor:not-allowed}
+.skill-category-row.skill-category-drop-target{border-color:#b77a20;background:#fff9ee;box-shadow:0 0 0 2px rgba(183,122,32,.16)}
+@media(max-width:700px){.skill-category-reorder{gap:2px}.skill-category-move,.skill-category-drag-handle{width:26px;height:26px}}

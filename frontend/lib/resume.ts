@@ -44,6 +44,18 @@ export function normalizeSkillCategories(categories: SkillCategory[]): SkillCate
 }
 
 
+/** Reorder whole skill categories, preserving the skills inside each category. */
+export function reorderSkillCategories(categories: SkillCategory[], from: number, to: number): SkillCategory[] {
+  if (!Number.isInteger(from) || !Number.isInteger(to) ||
+      from < 0 || from >= categories.length || to < 0 || to >= categories.length || from === to) {
+    return categories;
+  }
+  const reordered = [...categories];
+  const [moved] = reordered.splice(from, 1);
+  reordered.splice(to, 0, moved);
+  return reordered;
+}
+
 /** Move one achievement while preserving its text and every other bullet's order. */
 export function reorderBullets(bullets: Bullet[], from: number, to: number): Bullet[] {
   if (!Number.isInteger(from) || !Number.isInteger(to) ||

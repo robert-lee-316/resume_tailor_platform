@@ -257,6 +257,35 @@ def apply_paragraph_style(paragraph, category: str, styles: dict):
             b = set_child(rpr, 'w:b')
             b.set(qn('w:val'), '1' if bold else '0')
 
+def keep_bullets_inside_page(paragraph, category: str, styles: dict):
+    """Normalize wrapping of long achievements in DOCX / exact PDF.
+
+    Word templates exported from Google Docs may use justified paragraphs and
+    tab stops at their page edge. The result is disproportionate spacing or
+    characters pushed into the margin. Keep a small right-side safety inset.
+    An explicit user alignment (including justify) is still authoritative.
+    """
+    if paragraph.tag != qn('w:p') or category != 'experienceBullets':
+        return
+    override = styles.get('experienceBullets') if isinstance(styles, dict) else None
+    selected = set(override.get('changed', [])) if isinstance(override, dict) and override.get('enabled') else set()
+    ppr = set_child(paragraph, 'w:pPr')
+    indentation = ppr.get_or_add_ind()
+    # 0.12in = 173 twips. Prevent long words from touching the page edge.
+    existing = indentation.get(qn('w:right'))
+    try:
+        value = int(existing) if existing is not None else 0
+    except ValueError:
+        value = 0
+    indentation.set(qn('w:right'), str(max(173, value)))
+    # Avoid the large spaces sometimes caused by justified bullet paragraphs.
+    # Respect an explicit Justify choice in Style Settings.
+    if 'align' not in selected:
+        alignment = ppr.find(qn('w:jc'))
+        if alignment is not None and alignment.get(qn('w:val')) in ('both', 'distribute'):
+            alignment.set(qn('w:val'), 'left')
+
+
 def expand_paragraphs(elements, context):
     output = []
     index = 0
@@ -297,7 +326,10 @@ def expand_paragraphs(elements, context):
             continue
         new = copy.deepcopy(current)
         replace_fields(new, context)
-        apply_paragraph_style(new, which_style(content, context), context.get('_styles', {}))
+        category = which_style(content, context)
+        styles = context.get('_styles', {})
+        apply_paragraph_style(new, category, styles)
+        keep_bullets_inside_page(new, category, styles)
         output.append(new)
         index += 1
     return output
